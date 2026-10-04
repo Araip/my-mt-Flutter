@@ -1,0 +1,92 @@
+name: Build APK
+
+on:
+  push:
+    # "**" = 任意分支都构建（只写 tags 的话，推分支不会触发）。
+    # 想省额度可以改成 [ main, "feat/**", "fix/**" ]。
+    branches: [ "**" ]
+    tags: [ "v*" ]
+  workflow_dispatch:
+
+env:
+  FLUTTER_VERSION: "3.47.1"
+  UPDATE_URL: "https://loveqin.fun/Mt/update.json"
+
+jobs:
+  build:
+    name: Build Release APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      # key.properties 已被 .gitignore 排除，CI 上不存在，必须在这里生成。
+      # keystore 以 base64 存在仓库 Secret 里（Secret 名见 README 的说明）。
+      # 未配置时不让构建失败，而是回退到 debug 签名，方便先跑通流程。
+      - name: Prepare signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KEYSTORE_BASE64}" ]; then
+            echo "::warning::未配置 KEYSTORE_BASE64，本次用 debug 密钥签名。包可安装但无法覆盖已发布版本，仅用于测试。"
+            exit 0
+          fi
+          mkdir -p "$RUNNER_TEMP/signing"
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/signing/release.keystore"
+          # storeFile 写成绝对路径，避免 gradle 相对路径解析差异
+          {
+            echo "storeFile=$RUNNER_TEMP/signing/release.keystore"
+            echo "storePassword=${KEYSTORE_PASSWORD}"
+            echo "keyAlias=${KEY_ALIAS}"
+            echo "keyPassword=${KEY_PASSWORD}"
+          } > key.properties
+          echo "已写入签名配置：$(pwd)/key.properties"
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build release APK (arm64)
+        run: >
+          flutter build apk --release
+          --target-platform android-arm64
+          --dart-define=MTFORUM_UPDATE_URL=${{ env.UPDATE_URL }}
+
+      # 从 pubspec.yaml 取版本号，让产物名字能直接看出是哪个版本
+      - name: Read version
+        id: ver
+        run: |
+          v=$(grep -m1 '^version:' pubspec.yaml | sed 's/^version:[[:space:]]*//' | tr -d '\r')
+          echo "version=${v:-unknown}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mtforum-${{ steps.ver.outputs.version }}
+          path: build/app/outputs/flutter-apk/*.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload to Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/app/outputs/flutter-apk/*.apk
+          generate_release_notes: true

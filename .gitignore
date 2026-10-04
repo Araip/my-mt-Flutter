@@ -1,0 +1,36 @@
+# Flutter
+build/
+.dart_tool/
+.packages
+.flutter-plugins
+.flutter-plugins-dependencies
+*.lock
+# 但保留 pubspec.lock：锁定依赖精确版本，CI 和本地才会解析到同一套依赖
+!pubspec.lock
+.pub-cache/
+.pub/
+ios/
+linux/
+macos/
+web/
+windows/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Android
+android/.gradle/
+android/local.properties
+**/google-services.json
+
+# 签名（务必不要入库）
+# 注意：不带斜杠的写法可匹配任意层级，这样项目根目录和 android/ 下的
+# key.properties 都会被忽略（本项目实际放在根目录）。
+key.properties
+*.jks
+*.keystore
+scripts/
+test/
+docs/
