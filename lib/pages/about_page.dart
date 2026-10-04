@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../services/analytics_service.dart';
 import '../services/feedback_service.dart';
@@ -18,6 +19,14 @@ class _AboutPageState extends State<AboutPage> {
   static const _qq = '615192041';
   static const _email = '615162041@qq.com';
   static const _forumName = 'Cynnie';
+  static const _projectUrl = 'https://github.com/Araip/my-mt-Flutter';
+  static const _projectLabel = 'github.com/Araip/my-mt-Flutter';
+  static const _intro = 'MT论坛是一个基于 Flutter 开发的 MT 论坛（bbs.binmt.cc）'
+      '第三方客户端。支持浏览版块、查看帖子与楼层、发帖回帖、图片查看、'
+      '消息提醒、搜索、收藏与浏览历史等常用功能，并内置 BBCode 渲染、'
+      '评论关键词过滤、字体与主题切换等本地增强能力。\n\n'
+      '所有内容均来自 MT 论坛官方接口，客户端只做展示与交互优化，'
+      '不修改、不存储你的账号与帖子数据。';
 
   late final Future<Map<String, dynamic>> _versionInfoFuture;
 
@@ -62,6 +71,21 @@ class _AboutPageState extends State<AboutPage> {
         behavior: SnackBarBehavior.floating,
       ),
     );
+  }
+
+  /// 打开项目地址，失败时退化为复制到剪贴板。
+  Future<void> _openProject() async {
+    var opened = false;
+    try {
+      opened = await launchUrl(
+        Uri.parse(_projectUrl),
+        mode: LaunchMode.externalApplication,
+      );
+    } catch (_) {
+      opened = false;
+    }
+    if (opened || !mounted) return;
+    await _copy('项目地址', _projectUrl);
   }
 
   Future<void> _submitFeedback() async {
@@ -116,9 +140,17 @@ class _AboutPageState extends State<AboutPage> {
                   const SizedBox(height: 8),
                   _buildAppHeader(theme, colors),
                   const SizedBox(height: 28),
+                  const _SectionTitle(title: '软件介绍'),
+                  const SizedBox(height: 10),
+                  _buildIntroCard(theme, colors),
+                  const SizedBox(height: 28),
                   const _SectionTitle(title: '作者信息'),
                   const SizedBox(height: 10),
                   _buildAuthorCard(theme, colors),
+                  const SizedBox(height: 28),
+                  const _SectionTitle(title: '项目地址'),
+                  const SizedBox(height: 10),
+                  _buildProjectCard(theme, colors),
                   const SizedBox(height: 28),
                   const _SectionTitle(title: '问题反馈'),
                   const SizedBox(height: 10),
@@ -278,6 +310,149 @@ class _AboutPageState extends State<AboutPage> {
     return out.toString();
   }
 
+  /// 软件介绍卡片。
+  Widget _buildIntroCard(ThemeData theme, ColorScheme colors) {
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.auto_stories_outlined, size: 20, color: colors.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'MT 论坛第三方客户端',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              _intro,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                height: 1.62,
+                color: colors.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: const [
+                _FeatureChip(label: '发帖回帖'),
+                _FeatureChip(label: 'BBCode 渲染'),
+                _FeatureChip(label: '评论过滤'),
+                _FeatureChip(label: '字体与主题'),
+                _FeatureChip(label: '无广告'),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              '非官方客户端 · 与 MT 论坛官方无隶属关系',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: colors.outline,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 项目地址卡片：点击用外部浏览器打开，右侧按钮复制链接。
+  Widget _buildProjectCard(ThemeData theme, ColorScheme colors) {
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          InkWell(
+            onTap: _openProject,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+              child: Row(
+                children: [
+                  Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: colors.primaryContainer.withValues(alpha: 0.72),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    alignment: Alignment.center,
+                    child: Icon(
+                      Icons.code_rounded,
+                      size: 20,
+                      color: colors.primary,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '项目仓库',
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            color: colors.outline,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          _projectLabel,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(
+                    Icons.open_in_new_rounded,
+                    size: 18,
+                    color: colors.outline,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Divider(
+            height: 1,
+            color: colors.outlineVariant.withValues(alpha: 0.65),
+          ),
+          InkWell(
+            onTap: () => _copy('项目地址', _projectUrl),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(18, 13, 18, 13),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.content_copy_rounded,
+                    size: 18,
+                    color: colors.outline,
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    '复制项目地址',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildAuthorCard(ThemeData theme, ColorScheme colors) {
     return Card(
       clipBehavior: Clip.antiAlias,
@@ -419,6 +594,33 @@ class _AboutPageState extends State<AboutPage> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FeatureChip extends StatelessWidget {
+  final String label;
+  const _FeatureChip({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: colors.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: colors.outlineVariant.withValues(alpha: 0.55),
+        ),
+      ),
+      child: Text(
+        label,
+        style: theme.textTheme.labelMedium?.copyWith(
+          fontWeight: FontWeight.w600,
         ),
       ),
     );

@@ -124,6 +124,7 @@ class UpdateService {
 
   static const _channel = MethodChannel('mtforum/update');
   static const _startupKey = 'startup_auto_check_update';
+  static const _skippedKey = 'skipped_update_version_code';
   static const manifestUrl = String.fromEnvironment(
     'MTFORUM_UPDATE_URL',
     defaultValue: '',
@@ -148,6 +149,23 @@ class UpdateService {
   Future<void> setStartupCheckEnabled(bool value) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_startupKey, value);
+  }
+
+  /// 用户主动「跳过此版本」后记住的版本号，0 表示没有跳过任何版本。
+  Future<int> getSkippedVersionCode() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt(_skippedKey) ?? 0;
+  }
+
+  Future<void> setSkippedVersionCode(int versionCode) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_skippedKey, versionCode);
+  }
+
+  /// 清除「跳过此版本」，让更新提醒恢复。
+  Future<void> clearSkippedVersion() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_skippedKey);
   }
 
   Future<Map<String, dynamic>> getCurrentVersionInfo() async {
@@ -259,8 +277,10 @@ class UpdateService {
 
 Future<void> showUpdateDialog(
   BuildContext context,
-  UpdateCheckResult result,
-) async {
+  UpdateCheckResult result, {
+  /// 传入后弹窗底部会出现「跳过此版本」，由调用方负责持久化。
+  VoidCallback? onSkipVersion,
+}) async {
   if (!result.hasUpdate) return;
   final info = result.info;
   final theme = Theme.of(context);
@@ -466,11 +486,34 @@ Future<void> showUpdateDialog(
                 ],
               ),
             ),
-            Container(
+Container(
               padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
               color: colors.surfaceContainerLow,
-              child: Row(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
+                  if (onSkipVersion != null) ...[
+                    SizedBox(
+                      width: double.infinity,
+                      child: TextButton.icon(
+                        onPressed: () {
+                          Navigator.pop(dialogContext);
+                          onSkipVersion();
+                        },
+                        icon: const Icon(
+                          Icons.visibility_off_rounded,
+                          size: 16,
+                        ),
+                        label: Text('跳过 v${info.version}，不再提示'),
+                        style: TextButton.styleFrom(
+                          foregroundColor: colors.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                  ],
+                  Row(
+                    children: [
                   Expanded(
                     child: OutlinedButton.icon(
                       onPressed: () async {
@@ -503,6 +546,8 @@ Future<void> showUpdateDialog(
                       icon: const Icon(Icons.download_rounded, size: 18),
                       label: const Text('立即更新'),
                     ),
+                  ),
+                ],
                   ),
                 ],
               ),

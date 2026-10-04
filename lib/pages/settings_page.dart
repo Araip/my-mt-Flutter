@@ -6,6 +6,7 @@ import '../services/api_service.dart';
 import '../services/comment_filter_service.dart';
 import '../services/theme_service.dart';
 import '../services/update_service.dart';
+import 'about_page.dart';
 import 'login_page.dart';
 
 class SettingsPage extends StatefulWidget {
@@ -22,6 +23,7 @@ class _SettingsPageState extends State<SettingsPage> {
   final _commentFilter = CommentFilterService.instance;
 
   bool _autoCheck = true;
+  int _skippedVersionCode = 0;
   bool _checking = false;
   bool _fontChanging = false;
   String _version = '';
@@ -50,6 +52,7 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _load() async {
     await _commentFilter.load();
     final auto = await _updates.getStartupCheckEnabled();
+    final skipped = await _updates.getSkippedVersionCode();
     String version = '';
     try {
       final info = await _updates.getCurrentVersionInfo();
@@ -59,6 +62,7 @@ class _SettingsPageState extends State<SettingsPage> {
     if (!mounted) return;
     setState(() {
       _autoCheck = auto;
+      _skippedVersionCode = skipped;
       _version = version;
     });
   }
@@ -204,6 +208,16 @@ class _SettingsPageState extends State<SettingsPage> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('已退出登录')),
+    );
+  }
+
+  /// 清除「跳过此版本」，让后续版本重新提示。
+  Future<void> _clearSkippedVersion() async {
+    await _updates.clearSkippedVersion();
+    if (!mounted) return;
+    setState(() => _skippedVersionCode = 0);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('已恢复更新提醒')),
     );
   }
 
@@ -501,12 +515,25 @@ class _SettingsPageState extends State<SettingsPage> {
                   children: [
                     SwitchListTile(
                       secondary: const Icon(Icons.update_rounded),
-                      title: const Text('启动时检查更新'),
-                      subtitle: const Text('打开应用后自动检测新版本'),
+                      title: const Text('自动检测更新'),
+                      subtitle: Text(
+                        _autoCheck
+                            ? '打开应用时自动检查，有新版本会提示'
+                            : '已关闭，打开应用不再弹出更新提示',
+                      ),
                       value: _autoCheck,
                       onChanged: (value) async {
                         setState(() => _autoCheck = value);
                         await _updates.setStartupCheckEnabled(value);
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            duration: const Duration(seconds: 2),
+                            content: Text(
+                              value ? '已开启自动检测更新' : '已关闭自动检测更新',
+                            ),
+                          ),
+                        );
                       },
                     ),
                     const Divider(height: 1),
@@ -525,6 +552,18 @@ class _SettingsPageState extends State<SettingsPage> {
                       trailing: const Icon(Icons.chevron_right_rounded),
                       onTap: _checking ? null : _checkUpdate,
                     ),
+                    if (_skippedVersionCode > 0) ...[
+                      const Divider(height: 1),
+                      ListTile(
+                        leading: const Icon(Icons.visibility_off_rounded),
+                        title: Text('已跳过 v$_skippedVersionCode'),
+                        subtitle: const Text('该版本不再弹出更新提示'),
+                        trailing: TextButton(
+                          onPressed: _clearSkippedVersion,
+                          child: const Text('恢复提醒'),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
                 const SizedBox(height: 18),
@@ -539,6 +578,10 @@ class _SettingsPageState extends State<SettingsPage> {
                         _version.isEmpty
                             ? '第三方 Flutter 客户端'
                             : '版本 $_version',
+                      ),
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const AboutPage()),
                       ),
                     ),
                   ],

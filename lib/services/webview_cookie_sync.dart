@@ -180,26 +180,47 @@ Future<List<Cookie>> syncWebViewCookiesToJar({
   );
   if (webCookies.isEmpty) return const [];
 
-  final cookies = toJarCookies(webCookies, uri);
-  if (cookies.isEmpty) return const [];
+  final incoming = toJarCookies(webCookies, uri);
+  if (incoming.isEmpty) return const [];
 
-  // 「罐里已有哪些名字」必须在写入前取快照：写入之后这些 cookie 也算已有，
-  // 差集就永远为空了。
-  Set<String>? existingNames;
+  // 「罐里已有哪些」必须在写入前取快照：写入之后这些 cookie 也算已有，
+  // 差集就永远为空了。同时记下它们精确的 (domain, path)，用于下一步对齐。
+  var existing = const <Cookie>[];
   try {
-    existingNames = (await jar.loadForRequest(uri)).map((c) => c.name).toSet();
+    existing = await jar.loadForRequest(uri);
   } catch (e) {
     debugPrint('[CookieSync] 读取 CookieJar 失败: $e');
   }
+  final existingByName = {for (final c in existing) c.name: c};
 
-  // saveFromResponse 按 (domain, path, name) 覆盖同名条目，不会重复累积
-  await jar.saveFromResponse(uri, cookies);
+  // 关键：同名 cookie **必须沿用罐里既有的 (domain, path)**。
+  //
+  // cookie_jar 按 (domain, path, name) 去重，而 domain 的写法在不同来源下不同：
+  // 本 App 自己存登录态时（`saveFromResponse(Uri, [Cookie(name,value)])`）
+  // domain 取自 uri.host，是 **不带点** 的 `bbs.binmt.cc`；而 WebView 回流的
+  // cookie 常带前导点号 `.bbs.binmt.cc`。
+  //
+  // 两者会被当成两条独立条目并存，于是请求头里出现两个同名 Cookie
+  // （`cQWy_2132_auth=旧; …; cQWy_2132_auth=新`）。Discuz 只会认其中一个，
+  // 取到旧值就是「浏览器里过了、App 却掉登录」。
+  final toSave = <Cookie>[];
+  for (final c in incoming) {
+    final old = existingByName[c.name];
+    if (old != null) {
+      c.domain = old.domain;
+      c.path = old.path;
+    }
+    toSave.add(c);
+  }
 
-  final extras = existingNames == null
-      ? const <Cookie>[]
-      : cookies.where((c) => !existingNames!.contains(c.name)).toList();
+  await jar.saveFromResponse(uri, toSave);
+
+  final extras =
+      existingByName.isEmpty
+          ? const <Cookie>[]
+          : toSave.where((c) => !existingByName.containsKey(c.name)).toList();
   debugPrint(
-    '[CookieSync] WebView → Dio 回流 ${uri.host}: ${cookies.length} 条'
+    '[CookieSync] WebView → Dio 回流 ${uri.host}: ${toSave.length} 条'
     '${extras.isEmpty ? '' : '（新增 ${extras.length}: ${extras.map((c) => c.name).join(', ')}）'}',
   );
   return extras;

@@ -15,6 +15,7 @@ import '../data/portal_parser.dart';
 import '../data/user_center_parser.dart';
 import '../models/models.dart';
 import 'interstitial_detector.dart';
+import 'waf_challenge.dart';
 
 /// MT 论坛网络门面。
 ///
@@ -123,10 +124,16 @@ class ApiService {
         connectTimeout: const Duration(seconds: 15),
         receiveTimeout: const Duration(seconds: 25),
         sendTimeout: const Duration(seconds: 20),
+        // 注意：这里**绝对不能**手动设 `Accept-Encoding`。
+        // dart:io 的 HttpClient 只在「请求头里没有 Accept-Encoding」时才启用
+        // autoUncompress（自动加压 + 自动解压）；一旦手动设置，它就不再解压，
+        // 响应体直接是 gzip 二进制。本站在人机验证 / WAF 拦截时强制
+        // `content-encoding: gzip`（实测拦截页 4321 字节），拿到乱码后
+        // looksLikeInterstitialPage 连 `<html` 都找不到，验证流程彻底失效，
+        // 登录页 formhash 也解析不出来。交给 dart:io 自动处理即可。
         headers: const {
           'User-Agent': mobileUserAgent,
           'Accept-Language': 'zh-CN,zh;q=0.9',
-          'Accept-Encoding': 'gzip',
         },
       ),
     );
@@ -141,7 +148,7 @@ class ApiService {
                   'AppleWebKit/537.36 (KHTML, like Gecko) '
                   'Chrome/150.0.0.0 Safari/537.36',
           'Accept-Language': 'zh-CN,zh;q=0.9',
-          'Accept-Encoding': 'gzip',
+          // 同样不要手动设 Accept-Encoding（见上方 _dio 的说明）
         },
       ),
     );
@@ -173,25 +180,34 @@ class ApiService {
     // 通用拦截页（人机验证 / 防火墙）：交给注入的处理器恢复，通过后用同一请求
     // 自动重放一次。检测见 _recoverFromInterstitial / looksLikeInterstitialPage。
     //
-    // 只挂在带 CookieManager 的 `_dio` 上：`_desktopDio` 是刻意不带 CookieJar 的
-    // PC 模板专用客户端，验证拿到的防护 cookie 不会进它的请求头，重放也没用。
-    _dio.interceptors.add(
-      InterceptorsWrapper(
-        onResponse: (response, handler) async {
-          if (await _recoverFromInterstitial(response)) {
-            try {
-              handler.resolve(await _dio.fetch(response.requestOptions));
-              return;
-            } catch (e) {
-              debugPrint(
-                '[DIO] ${response.requestOptions.path} 拦截页重放失败: $e',
-              );
+    // 两个客户端共用同一套恢复逻辑。
+    //
+    // `_desktopDio` 虽然刻意不带 CookieJar（PC 模板专用，见 _getDesktopFavoriteDetail），
+    // 但它请求的 forum.php / thread-*.html 同样会被 WAF 拦下 —— 拦的是请求本身，
+    // 跟带不带 cookie 无关，所以它一样需要能自愈。
+    // 重放统一走 `_dio`：它带 CookieManager，能把刚解出来的通行 cookie 一起带上。
+    void installInterstitialRecovery(Dio client) {
+      client.interceptors.add(
+        InterceptorsWrapper(
+          onResponse: (response, handler) async {
+            if (await _recoverFromInterstitial(response)) {
+              try {
+                handler.resolve(await _dio.fetch(response.requestOptions));
+                return;
+              } catch (e) {
+                debugPrint(
+                  '[DIO] ${response.requestOptions.path} 拦截页重放失败: $e',
+                );
+              }
             }
-          }
-          handler.next(response);
-        },
-      ),
-    );
+            handler.next(response);
+          },
+        ),
+      );
+    }
+
+    installInterstitialRecovery(_dio);
+    installInterstitialRecovery(_desktopDio);
 
     _prefs = await SharedPreferences.getInstance();
 
@@ -225,9 +241,6 @@ class ApiService {
   /// 仅 GET 自动重放：写操作（发帖 / 评论）重放有重复提交风险，验证通过后
   /// 交给用户手动重试。POST 命中时同样会触发验证弹窗，只是不自动重放。
   Future<bool> _recoverFromInterstitial(Response<dynamic> response) async {
-    final recover = interstitialHandler;
-    if (recover == null) return false;
-
     final options = response.requestOptions;
     if (options.extra[kInterstitialHandledFlag] == true) return false;
     if (response.statusCode != 200) return false;
@@ -250,18 +263,98 @@ class ApiService {
     debugPrint(
       '[DIO] ${options.path} 命中非论坛页（${body.length}B），尝试自动恢复',
     );
+
+    // ── 第一层：纯算法挑战（`acw_sc__v2`），零交互、零界面 ──
+    // 不需要用户、不需要 WebView，后台任务同样能自愈，优先走这条。
+    if (await _solveAcwChallenge(response)) {
+      debugPrint('[DIO] ${options.path} WAF 挑战已自动破解，重放请求');
+      options.extra[kInterstitialHandledFlag] = true;
+      return true;
+    }
+
+    // ── 第二层：需要人机交互的验证（验证码 / 滑块 / 未知变体）──
+    final recover = interstitialHandler;
+    if (recover == null) {
+      debugPrint('[DIO] ${options.path} 无法自动破解，且当前无可用界面');
+      return false;
+    }
     final recovered = await recover(options);
     if (!recovered) {
       debugPrint('[DIO] ${options.path} 未通过人机验证，按原样返回');
       return false;
     }
-    if (options.method != 'GET') {
-      debugPrint('[DIO] ${options.path} 已通过验证，但非 GET 请求不自动重放');
-      return false;
-    }
     debugPrint('[DIO] ${options.path} 已通过验证，重放请求');
     options.extra[kInterstitialHandledFlag] = true;
     return true;
+  }
+
+  /// 用纯算法解掉 WAF 的 `acw_sc__v2` 挑战（见 [WafChallenge]）。
+  ///
+  /// 返回 true 表示「已拿到有效通行 Cookie，可以重放原请求」。
+  ///
+  /// **算完必须自证**：阿里云有多个变体，算法对不上时要能识别出来，
+  /// 否则会拿着一个错的 Cookie 无限重放、把真实错误藏起来。所以这里解完
+  /// 立刻用**同一地址、同一 UA** 再打一次：
+  /// - 还是挑战页 → 算法不适用，返回 false（交给人工验证兜底）
+  /// - 不是挑战页 → 挑战已过，返回 true
+  Future<bool> _solveAcwChallenge(Response<dynamic> response) async {
+    final body = response.data;
+    if (body is! String) return false;
+
+    final value = WafChallenge.solveFromBody(body);
+    if (value == null || value.isEmpty) return false;
+
+    final options = response.requestOptions;
+    final uri = options.uri;
+    final host = uri.host;
+    if (host.isEmpty) return false;
+
+    debugPrint(
+      '[DIO] 识别到 acw_sc__v2 挑战（${WafChallenge.byteLength(body)}B），'
+      '本地求解 = $value',
+    );
+
+    // 写进 CookieJar：host 级 + path=/，后续所有请求自动携带。
+    try {
+      await cookieJar.saveFromResponse(uri, <Cookie>[
+        Cookie('acw_sc__v2', value)
+          ..domain = host
+          ..path = '/'
+          ..secure = uri.scheme == 'https',
+      ]);
+    } catch (e) {
+      debugPrint('[DIO] 写入 acw_sc__v2 失败: $e');
+      return false;
+    }
+
+    // 自证：带新 Cookie 重打同一地址
+    try {
+      final probe = await _dio.get<String>(
+        uri.toString(),
+        options: Options(
+          responseType: ResponseType.plain,
+          headers: <String, dynamic>{
+            'User-Agent': options.headers['User-Agent'] ?? mobileUserAgent,
+          },
+          extra: <String, dynamic>{kInterstitialHandledFlag: true},
+        ),
+      );
+      final probeBody = probe.data ?? '';
+      if (probeBody.isEmpty) return false;
+      if (WafChallenge.isChallenge(probeBody) ||
+          looksLikeInterstitialPage(
+            probeBody,
+            probe.headers.value('content-type'),
+          )) {
+        debugPrint('[DIO] acw_sc__v2 求解未生效（仍是挑战页），转人工验证');
+        return false;
+      }
+      debugPrint('[DIO] acw_sc__v2 求解生效（${probeBody.length}B）');
+      return true;
+    } catch (e) {
+      debugPrint('[DIO] acw_sc__v2 自证请求失败: $e');
+      return false;
+    }
   }
 
   Future<void> _restoreSessionCookies() async {

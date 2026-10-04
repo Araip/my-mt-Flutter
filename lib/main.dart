@@ -247,10 +247,21 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
   Future<void> _checkUpdate() async {
     try {
       final updates = UpdateService.instance;
+      // 用户在「设置 → 更新」里关掉自动检测后，启动时完全不检查。
       if (!await updates.getStartupCheckEnabled()) return;
       final result = await updates.check();
       if (!mounted || !result.hasUpdate) return;
-      await showUpdateDialog(context, result);
+      // 用户主动跳过的版本不再弹窗，直到出现更高的版本号。
+      if (await updates.getSkippedVersionCode() == result.info.versionCode) {
+        return;
+      }
+      if (!mounted) return;
+      await showUpdateDialog(
+        context,
+        result,
+        onSkipVersion: () =>
+            updates.setSkippedVersionCode(result.info.versionCode),
+      );
     } catch (_) {
       // 自动检查更新失败时保持静默，不阻塞应用启动。
     }

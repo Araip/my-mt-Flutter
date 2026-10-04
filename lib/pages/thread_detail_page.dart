@@ -126,7 +126,6 @@ class ThreadDetailPage extends StatefulWidget {
 
 class _ThreadDetailPageState extends State<ThreadDetailPage> {
   final _api = ApiService.instance;
-  final _scrollController = ScrollController();
 
   ThreadDetail? _detail;
   bool _loading = false;
@@ -138,17 +137,16 @@ class _ThreadDetailPageState extends State<ThreadDetailPage> {
   bool _favorited = false;
   bool _targetCommentsOpened = false;
 
+  /// 从「定位到某条回复」进入时，评论区展示的数据与目标楼层。
+  ThreadDetail? _locatedDetail;
+  String? _locatedTargetPid;
+
   @override
   void initState() {
     super.initState();
     _loadData();
   }
 
-  @override
-  void dispose() {
-    _scrollController.dispose();
-    super.dispose();
-  }
 
 
   Future<void> _loadData() async {
@@ -184,13 +182,11 @@ class _ThreadDetailPageState extends State<ThreadDetailPage> {
       });
       if (targetDetail != null && !_targetCommentsOpened) {
         _targetCommentsOpened = true;
-        final locatedDetail = targetDetail;
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) return;
-          _showComments(
-            detailOverride: locatedDetail,
-            targetPid: targetPid,
-          );
+        // 评论区已内联到帖子正文下方，这里只切到「定位模式」，
+        // 不再弹出底部弹窗；标题栏的按钮可退出定位。
+        setState(() {
+          _locatedDetail = targetDetail;
+          _locatedTargetPid = targetPid;
         });
       }
     } catch (e) {
@@ -227,33 +223,13 @@ class _ThreadDetailPageState extends State<ThreadDetailPage> {
     }
   }
 
-  Future<void> _showComments({
-    ThreadDetail? detailOverride,
-    String? targetPid,
-  }) async {
-    final detail = detailOverride ?? _detail;
-    if (detail == null || detail.posts.isEmpty) return;
-    final locatingTarget = targetPid?.trim().isNotEmpty == true;
-
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      showDragHandle: true,
-      builder: (_) => _CommentsSheet(
-        detail: detail,
-        initialTargetPid: targetPid,
-        hasMore: () => locatingTarget ? false : _hasMore,
-        isLoadingMore: () => _loadingMore,
-        onLoadMore: locatingTarget ? () async {} : _loadMore,
-        onRefresh: locatingTarget
-            ? () => _refreshLocatedComments(detail)
-            : _refreshCommentsInPlace,
-        canEdit: _canEdit,
-        onEdit: _editPost,
-        onImageTap: (post, index) => _openImages(post.images, index),
-      ),
-    );
+  /// 退出「定位到回复」模式，评论区回到帖子的普通评论列表。
+  void _exitLocatedComments() {
+    if (_locatedDetail == null && _locatedTargetPid == null) return;
+    setState(() {
+      _locatedDetail = null;
+      _locatedTargetPid = null;
+    });
   }
 
   Future<void> _refreshLocatedComments(ThreadDetail detail) async {
@@ -389,95 +365,94 @@ class _ThreadDetailPageState extends State<ThreadDetailPage> {
   Widget build(BuildContext context) {
     final detail = _detail;
     return Scaffold(
-      body: CustomScrollView(
-        controller: _scrollController,
-        cacheExtent: 800,
-        slivers: [
-          SliverAppBar(
-            pinned: true,
-            title: Text(
-              detail?.title ?? '帖子详情',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            actions: [
-              if (detail != null)
-                IconButton(
-                  tooltip: _liked ? '取消点赞' : '点赞',
-                  onPressed: _toggleLike,
-                  icon: Icon(
-                    _liked ? Icons.thumb_up_rounded : Icons.thumb_up_outlined,
-                  ),
-                ),
-              if (detail != null)
-                IconButton(
-                  tooltip: _favorited ? '取消收藏' : '收藏',
-                  onPressed: _toggleFavorite,
-                  icon: Icon(
-                    _favorited
-                        ? Icons.bookmark_rounded
-                        : Icons.bookmark_border_rounded,
-                  ),
-                ),
-              IconButton(
-                tooltip: '刷新',
-                onPressed: _loading ? null : _loadData,
-                icon: const Icon(Icons.refresh_rounded),
+      appBar: AppBar(
+        title: Text(
+          detail?.title ?? '帖子详情',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        actions: [
+          if (detail != null)
+            IconButton(
+              tooltip: _liked ? '取消点赞' : '点赞',
+              onPressed: _toggleLike,
+              icon: Icon(
+                _liked ? Icons.thumb_up_rounded : Icons.thumb_up_outlined,
               ),
-            ],
+            ),
+          if (detail != null)
+            IconButton(
+              tooltip: _favorited ? '取消收藏' : '收藏',
+              onPressed: _toggleFavorite,
+              icon: Icon(
+                _favorited
+                    ? Icons.bookmark_rounded
+                    : Icons.bookmark_border_rounded,
+              ),
+            ),
+          IconButton(
+            tooltip: '刷新',
+            onPressed: _loading ? null : _loadData,
+            icon: const Icon(Icons.refresh_rounded),
           ),
-          if (_loading && detail == null)
-            const SliverFillRemaining(
-              child: AppStateView.loading(),
-            )
-          else if (_error != null && detail == null)
-            SliverFillRemaining(
-              child: AppStateView.error(
-                message: _error!,
-                onRetry: _loadData,
-              ),
-            )
-          else if (detail != null && detail.posts.isEmpty)
-            SliverFillRemaining(
-              child: AppStateView.error(
-                message: '没有解析到楼层内容',
-                onRetry: _loadData,
-              ),
-            )
-          else if (detail != null)
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 90),
-              sliver: SliverList(
-                delegate: SliverChildListDelegate([
-                  Builder(
-                    builder: (context) {
-                      final op = _threadOp(detail);
-                      return RepaintBoundary(
-                        child: _PostCard(
-                          post: op,
-                          highlighted: false,
-                          onReply: () => _showReply(post: op),
-                          onEdit: _canEdit(op) ? () => _editPost(op) : null,
-                          onImageTap: (imageIndex) =>
-                              _openImages(op.images, imageIndex),
-                        ),
-                      );
-                    },
-                  ),
-                ]),
-              ),
-            ),
         ],
       ),
-      floatingActionButton: detail == null
-          ? null
-          : FloatingActionButton.extended(
-              heroTag: 'thread-comments-${widget.tid}',
-              onPressed: () => _showComments(),
-              icon: const Icon(Icons.forum_rounded),
-              label: const Text('评论区'),
+      body: _buildBody(detail),
+    );
+  }
+
+  /// 页面主体：帖子正文 + 紧接其下的内联评论区（不再有「评论区」悬浮按钮）。
+  Widget _buildBody(ThreadDetail? detail) {
+    if (detail == null) {
+      if (_loading) return const AppStateView.loading();
+      if (_error != null) {
+        return AppStateView.error(message: _error!, onRetry: _loadData);
+      }
+      return const AppStateView.loading();
+    }
+
+    final located = _locatedDetail;
+    final shown = located ?? detail;
+    if (shown.posts.isEmpty) {
+      return AppStateView.error(
+        message: '没有解析到楼层内容',
+        onRetry: _loadData,
+      );
+    }
+
+    return _CommentsView(
+      // 定位模式与普通模式的数据源不同，用 key 让评论区重建一次，
+      // 保证切换时评论列表、分页窗口都回到正确状态。
+      key: ValueKey<String>('${shown.tid}#${_locatedTargetPid ?? ''}'),
+      detail: shown,
+      header: Builder(
+        builder: (context) {
+          final op = _threadOp(shown);
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(6, 2, 6, 8),
+            child: RepaintBoundary(
+              child: _PostCard(
+                post: op,
+                highlighted: false,
+                onReply: () => _showReply(post: op),
+                onEdit: _canEdit(op) ? () => _editPost(op) : null,
+                onImageTap: (imageIndex) => _openImages(op.images, imageIndex),
+              ),
             ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+          );
+        },
+      ),
+      initialTargetPid: _locatedTargetPid,
+      hasMore: () => located == null ? _hasMore : false,
+      isLoadingMore: () => _loadingMore,
+      onLoadMore: located == null ? _loadMore : () async {},
+      onRefresh: located == null
+          ? _refreshCommentsInPlace
+          : () => _refreshLocatedComments(located),
+      canEdit: _canEdit,
+      onEdit: _editPost,
+      onImageTap: (post, index) => _openImages(post.images, index),
+      onExitLocated: located == null ? null : _exitLocatedComments,
     );
   }
 }
@@ -504,8 +479,12 @@ List<Post> _threadComments(ThreadDetail detail) {
   return detail.posts.where((post) => !post.isOp).toList(growable: false);
 }
 
-class _CommentsSheet extends StatefulWidget {
+/// 内联评论区：直接铺在帖子正文下方，不再用底部弹窗 + 悬浮按钮。
+class _CommentsView extends StatefulWidget {
   final ThreadDetail detail;
+
+  /// 列表顶部第一条内容（帖子正文），随评论一起滚动。
+  final Widget? header;
   final String? initialTargetPid;
   final bool Function() hasMore;
   final bool Function() isLoadingMore;
@@ -515,8 +494,13 @@ class _CommentsSheet extends StatefulWidget {
   final ValueChanged<Post> onEdit;
   final void Function(Post post, int index) onImageTap;
 
-  const _CommentsSheet({
+  /// 仅在「定位到回复」模式下提供，用于退出定位。
+  final VoidCallback? onExitLocated;
+
+  const _CommentsView({
+    super.key,
     required this.detail,
+    this.header,
     this.initialTargetPid,
     required this.hasMore,
     required this.isLoadingMore,
@@ -525,13 +509,14 @@ class _CommentsSheet extends StatefulWidget {
     required this.canEdit,
     required this.onEdit,
     required this.onImageTap,
+    this.onExitLocated,
   });
 
   @override
-  State<_CommentsSheet> createState() => _CommentsSheetState();
+  State<_CommentsView> createState() => _CommentsViewState();
 }
 
-class _CommentsSheetState extends State<_CommentsSheet> {
+class _CommentsViewState extends State<_CommentsView> {
   static const _commentReverseOrderKey = 'thread_comment_reverse_order';
 
   final _scrollController = ScrollController();
@@ -872,8 +857,9 @@ class _CommentsSheetState extends State<_CommentsSheet> {
         // 评论卡片高度不固定，不能用“楼层数 × 固定高度”定位。按目标在
         // 当前窗口中的比例多次校准，让 Sliver 在每次布局后修正总高度估算。
         for (var attempt = 0; attempt < 3 && targetContext == null; attempt++) {
-          final itemIndex = index + (_targetMode ? 1 : 0);
-          final itemCount = comments.length + (_targetMode ? 2 : 1);
+          final itemIndex = _leadingItemCount + index + (_targetMode ? 1 : 0);
+          final itemCount =
+              _leadingItemCount + comments.length + (_targetMode ? 2 : 1);
           final fraction = itemCount <= 1 ? 0.0 : itemIndex / (itemCount - 1);
           final estimated =
               _scrollController.position.maxScrollExtent * fraction;
@@ -994,12 +980,7 @@ class _CommentsSheetState extends State<_CommentsSheet> {
           onReplyContextTap:
               parent == null ? null : () => _scrollToLoadedComment(parent.pid),
           onReply: () => _startReply(post),
-          onEdit: widget.canEdit(post)
-              ? () {
-                  Navigator.pop(context);
-                  Future.microtask(() => widget.onEdit(post));
-                }
-              : null,
+          onEdit: widget.canEdit(post) ? () => widget.onEdit(post) : null,
           onImageTap: (imageIndex) => widget.onImageTap(post, imageIndex),
         ),
       ),
@@ -1016,8 +997,9 @@ class _CommentsSheetState extends State<_CommentsSheet> {
         ? _targetCommentKey.currentContext
         : _commentKeys[pid]?.currentContext;
     for (var attempt = 0; attempt < 3 && targetContext == null; attempt++) {
-      final itemIndex = index + (_targetMode ? 1 : 0);
-      final itemCount = comments.length + (_targetMode ? 2 : 1);
+      final itemIndex = _leadingItemCount + index + (_targetMode ? 1 : 0);
+      final itemCount =
+          _leadingItemCount + comments.length + (_targetMode ? 2 : 1);
       final fraction = itemCount <= 1 ? 0.0 : itemIndex / (itemCount - 1);
       _scrollController.jumpTo(
         (_scrollController.position.maxScrollExtent * fraction)
@@ -1314,13 +1296,7 @@ class _CommentsSheetState extends State<_CommentsSheet> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
-    final media = MediaQuery.of(context);
     final comments = _comments;
-    final rawCommentCount = _rawComments.length;
-    final filteredCommentCount = _filteredOutComments.length;
-    final allCommentsFiltered = rawCommentCount > 0 &&
-        !_showFilteredComments &&
-        comments.isEmpty;
     final loading = _loadingAll ||
         widget.isLoadingMore() ||
         (_targetMode &&
@@ -1333,15 +1309,98 @@ class _CommentsSheetState extends State<_CommentsSheet> {
         !_sending &&
         !_uploadingImage &&
         _composerController.text.trim().isNotEmpty;
+    final showEmptyState = comments.isEmpty && !loading && !hasMore;
 
-    return Padding(
-      padding: EdgeInsets.only(bottom: media.viewInsets.bottom),
-      child: FractionallySizedBox(
-        heightFactor: 0.92,
-        child: Material(
-          color: colors.surface,
-          child: Column(
-            children: [
+    return Column(
+      children: [
+        Expanded(
+          child: ListView.builder(
+            controller: _scrollController,
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            padding: const EdgeInsets.fromLTRB(10, 6, 10, 18),
+            itemCount: showEmptyState
+                ? _leadingItemCount + 1
+                : _leadingItemCount + comments.length + (_targetMode ? 2 : 1),
+            itemBuilder: (context, index) {
+              final leading = _leadingItemCount;
+              if (index < leading) {
+                if (index == 0) {
+                  return widget.header ?? const SizedBox.shrink();
+                }
+                return _buildHeaderSection(theme, colors);
+              }
+              if (showEmptyState) {
+                return _buildEmptyState(theme, colors);
+              }
+              final localIndex = index - leading;
+              if (_targetMode && localIndex == 0) {
+                return _buildTargetWindowEdge(
+                  theme: theme,
+                  colors: colors,
+                  previous: true,
+                );
+              }
+              final commentIndex = _targetMode ? localIndex - 1 : localIndex;
+              if (commentIndex == comments.length) {
+                if (_targetMode) {
+                  return _buildTargetWindowEdge(
+                    theme: theme,
+                    colors: colors,
+                    previous: false,
+                  );
+                }
+                return _buildCommentsTail(
+                  theme: theme,
+                  colors: colors,
+                  loading: loading,
+                  hasMore: hasMore,
+                );
+              }
+              return _buildCommentCard(comments[commentIndex]);
+            },
+          ),
+        ),
+        SafeArea(
+          top: false,
+          child: _CommentComposer(
+            controller: _composerController,
+            focusNode: _composerFocusNode,
+            loggedIn: loggedIn,
+            sending: _sending,
+            uploadingImage: _uploadingImage,
+            attachmentCount: _replyAttachments.length,
+            canSend: canSend,
+            showSmileys: _showSmileys,
+            replyTargetName: _replyTarget?.authorName,
+            onTapInput: _hideSmileysForKeyboard,
+            onToggleSmileys: _toggleSmileys,
+            onPickImage: _pickReplyImage,
+            onCancelReply: _cancelReply,
+            onSend: _sendComment,
+            onSmileySelected: _insertSmiley,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 列表顶部固定条目数：1 = 帖子正文，2 = 再加一条评论区标题栏。
+  int get _leadingItemCount => widget.header == null ? 1 : 2;
+
+  /// 全部评论都被过滤，且当前不在查看被过滤内容。
+  bool get _allCommentsFiltered =>
+      _rawComments.isNotEmpty && !_showFilteredComments && _comments.isEmpty;
+
+  /// 帖子正文下方的评论区标题栏（数量、过滤、排序、退出定位）。
+  Widget _buildHeaderSection(ThemeData theme, ColorScheme colors) {
+    final comments = _comments;
+    final rawCommentCount = _rawComments.length;
+    final filteredCommentCount = _filteredOutComments.length;
+    final allCommentsFiltered = _allCommentsFiltered;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 8, 10),
                 child: Row(
@@ -1415,11 +1474,12 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                             : Icons.arrow_upward_rounded,
                       ),
                     ),
-                    IconButton(
-                      tooltip: '关闭',
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.close_rounded),
-                    ),
+                    if (widget.onExitLocated != null)
+                      IconButton(
+                        tooltip: '退出定位',
+                        onPressed: widget.onExitLocated,
+                        icon: const Icon(Icons.close_rounded),
+                      ),
                   ],
                 ),
               ),
@@ -1476,91 +1536,40 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                     ),
                   ),
                 ),
-              Expanded(
-                child: comments.isEmpty && !loading && !hasMore
-                    ? Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.chat_bubble_outline_rounded,
-                              size: 42,
-                              color: colors.outline,
-                            ),
-                            const SizedBox(height: 10),
-                            Text(
-                              allCommentsFiltered ? '评论已被过滤' : '还没有评论',
-                              style: theme.textTheme.titleSmall?.copyWith(
-                                color: colors.onSurfaceVariant,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              allCommentsFiltered
-                                  ? '点击顶部“已过滤”查看隐藏内容'
-                                  : '来发表第一条评论吧',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: colors.outline,
-                              ),
-                            ),
-                          ],
-                        ),
-                      )
-                    : ListView.builder(
-                        controller: _scrollController,
-                        keyboardDismissBehavior:
-                            ScrollViewKeyboardDismissBehavior.onDrag,
-                        padding: const EdgeInsets.fromLTRB(10, 6, 10, 18),
-                        itemCount: comments.length + (_targetMode ? 2 : 1),
-                        itemBuilder: (context, index) {
-                          if (_targetMode && index == 0) {
-                            return _buildTargetWindowEdge(
-                              theme: theme,
-                              colors: colors,
-                              previous: true,
-                            );
-                          }
+      ],
+    );
+  }
 
-                          final commentIndex =
-                              _targetMode ? index - 1 : index;
-                          if (commentIndex == comments.length) {
-                            if (_targetMode) {
-                              return _buildTargetWindowEdge(
-                                theme: theme,
-                                colors: colors,
-                                previous: false,
-                              );
-                            }
-                            return _buildCommentsTail(
-                              theme: theme,
-                              colors: colors,
-                              loading: loading,
-                              hasMore: hasMore,
-                            );
-                          }
-                          return _buildCommentCard(comments[commentIndex]);
-                        },
-                      ),
+  /// 一条评论都没有时的占位内容。
+  Widget _buildEmptyState(ThemeData theme, ColorScheme colors) {
+    final allCommentsFiltered = _allCommentsFiltered;
+
+    return SizedBox(
+      height: 260,
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.chat_bubble_outline_rounded,
+              size: 42,
+              color: colors.outline,
+            ),
+            const SizedBox(height: 10),
+            Text(
+              allCommentsFiltered ? '评论已被过滤' : '还没有评论',
+              style: theme.textTheme.titleSmall?.copyWith(
+                color: colors.onSurfaceVariant,
               ),
-              _CommentComposer(
-                controller: _composerController,
-                focusNode: _composerFocusNode,
-                loggedIn: loggedIn,
-                sending: _sending,
-                uploadingImage: _uploadingImage,
-                attachmentCount: _replyAttachments.length,
-                canSend: canSend,
-                showSmileys: _showSmileys,
-                replyTargetName: _replyTarget?.authorName,
-                onTapInput: _hideSmileysForKeyboard,
-                onToggleSmileys: _toggleSmileys,
-                onPickImage: _pickReplyImage,
-                onCancelReply: _cancelReply,
-                onSend: _sendComment,
-                onSmileySelected: _insertSmiley,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              allCommentsFiltered ? '点击上方「已过滤」查看隐藏内容' : '来发表第一条评论吧',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: colors.outline,
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
+import '../app_keys.dart';
 import '../services/api_service.dart';
 import '../services/webview_cookie_sync.dart';
 
@@ -119,43 +120,97 @@ class _VerifyBrowserPageState extends State<VerifyBrowserPage> {
     _lastProbeAt = DateTime.now();
     _probing = true;
     try {
-      final ok = await widget.probe();
+      // 探测本身可能因为网络卡住。没有超时的话 `_probing` 会长期为 true，
+      // 于是「我已完成」永远只回一句「正在检测…」——表现为点了没反应。
+      final ok = await widget.probe().timeout(
+        const Duration(seconds: 12),
+        onTimeout: () {
+          debugPrint('[Verify] 探测超时（12s）');
+          return false;
+        },
+      );
       if (ok) {
         _finish(true);
         return true;
       }
+      return false;
+    } catch (e) {
+      debugPrint('[Verify] 探测异常: $e');
       return false;
     } finally {
       _probing = false;
     }
   }
 
+  /// 安全地弹一条提示：**任何失败都不允许影响调用方的主流程**。
+  void _toast(String text) {
+    if (!mounted) return;
+    try {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(text)),
+      );
+    } catch (e) {
+      debugPrint('[Verify] 提示失败（忽略）: $e');
+    }
+  }
+
+  /// 关闭本页并回传结果。
+  ///
+  /// 这里唯一**不能失败**的动作是 `pop`：它一旦没执行，用户就卡在
+  /// 「点了没反应、退不出去」上。所以顺序和异常处理都围绕这一点设计：
+  /// 1. `pop` 放最前，且单独 try；
+  /// 2. 取 `ScaffoldMessenger` 只是为了弹提示，包起来，失败只记日志；
+  /// 3. `pop` 走不通时用 [rootNavigatorKey] 兜底（本页就是用它 push 进来的）。
   void _finish(bool ok, {String? reason}) {
     if (_finished) return;
     _finished = true;
     _poll?.cancel();
     _deadline?.cancel();
-    if (!mounted) return;
-    // 先取 messenger 再 pop：pop 之后本页 context 已失效，但 ScaffoldMessenger
-    // 挂在根导航器之上，仍然可用。
-    final messenger = ScaffoldMessenger.of(context);
-    Navigator.of(context).pop(ok);
-    messenger.showSnackBar(
-      SnackBar(content: Text(ok ? '验证已通过' : (reason ?? '未完成验证'))),
-    );
+
+    final text = ok ? '验证已通过' : (reason ?? '未完成验证');
+
+    // 先取 messenger（pop 之后本页 context 已失效），但取不到也无所谓
+    ScaffoldMessengerState? messenger;
+    try {
+      messenger = ScaffoldMessenger.of(context);
+    } catch (e) {
+      debugPrint('[Verify] 取 ScaffoldMessenger 失败（忽略）: $e');
+    }
+
+    var popped = false;
+    if (mounted) {
+      try {
+        Navigator.of(context).pop(ok);
+        popped = true;
+      } catch (e) {
+        debugPrint('[Verify] pop 失败，尝试根导航器兜底: $e');
+      }
+    }
+    if (!popped) {
+      try {
+        rootNavigatorKey.currentState?.pop(ok);
+      } catch (e) {
+        debugPrint('[Verify] 根导航器兜底 pop 失败: $e');
+      }
+    }
+
+    try {
+      messenger?.showSnackBar(SnackBar(content: Text(text)));
+    } catch (e) {
+      debugPrint('[Verify] 提示失败（忽略）: $e');
+    }
   }
 
   Future<void> _manualCheck() async {
-    final messenger = ScaffoldMessenger.of(context);
+    if (_finished) return;
     if (_probing) {
-      messenger.showSnackBar(const SnackBar(content: Text('正在检测…')));
+      _toast('正在检测…');
       return;
     }
+    _toast('正在检测…');
     final ok = await _probe(force: true);
     if (!ok && mounted && !_finished) {
-      messenger.showSnackBar(
-        const SnackBar(content: Text('尚未检测到通过，请完成页面上的验证')),
-      );
+      _toast('尚未检测到通过，请确认页面已显示论坛内容');
     }
   }
 
