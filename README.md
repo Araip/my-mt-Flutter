@@ -1,4 +1,4 @@
-# MT论坛 Flutter 客户端   自己用的版本修改验证人机
+# MT论坛 Flutter 客户端
 
 MT管理器论坛 (bbs.binmt.cc) 第三方客户端，基于 Flutter + Material Design 3。
 

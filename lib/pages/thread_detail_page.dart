@@ -18,6 +18,7 @@ import '../widgets/user_level_badge.dart';
 import '../routes/forum_link_router.dart';
 import 'account/user_profile_page.dart';
 import 'thread_editor_page.dart';
+import '../services/reply_preset_service.dart';
 
 Future<({PostEditorForm form, PostAttachmentUploadResult attachment})?>
     _pickAndUploadReplyImage({
@@ -548,6 +549,9 @@ class _CommentsViewState extends State<_CommentsView> {
   PostEditorForm? _replyForm;
   final List<PostAttachmentUploadResult> _replyAttachments = [];
 
+  /// 是否已把预设回复内容自动填入输入框（用于显示提示条）。
+  bool _presetPrefilled = false;
+
   bool get _targetMode =>
       widget.initialTargetPid?.trim().isNotEmpty == true;
 
@@ -561,6 +565,9 @@ class _CommentsViewState extends State<_CommentsView> {
     _resetTargetWindowState();
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      // 「回复可见」的帖子：按设置把自定义回复预填进输入框。
+      await _applyReplyPreset();
       if (!mounted) return;
       if (_targetMode) {
         await _primeTargetWindow();
@@ -920,6 +927,49 @@ class _CommentsViewState extends State<_CommentsView> {
     if (mounted) setState(() {});
   }
 
+  /// 帖子正文是否带「回复可见」类隐藏内容提示。
+  ///
+  /// [Post.hiddenHint] 同时覆盖「回复可见」和「积分/权限不足」两种情况，
+  /// 这里只对前者预填回复，避免回复了也看不到内容。
+  bool _needsReplyForHiddenContent() {
+    for (final post in widget.detail.posts) {
+      final hint = post.hiddenHint?.trim() ?? '';
+      if (hint.isEmpty) continue;
+      if (hint.contains('回复')) return true;
+    }
+    return false;
+  }
+
+  /// 按「设置 → 回帖」的配置，为回复可见帖预填自定义回复内容。
+  Future<void> _applyReplyPreset() async {
+    final preset = ReplyPresetService.instance;
+    await preset.load();
+    if (!mounted) return;
+
+    if (!preset.prefillEnabled) return;
+    if (!ApiService.instance.isLoggedIn) return;
+    if (_composerController.text.trim().isNotEmpty) return;
+    if (preset.hasReplied(widget.detail.tid)) return;
+    if (!_needsReplyForHiddenContent()) return;
+
+    final text = preset.effectiveTemplate.trim();
+    if (text.isEmpty) return;
+
+    _composerController.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+    setState(() => _presetPrefilled = true);
+
+    if (!preset.autoSendEnabled) return;
+    // 自动发送前留一点时间，用户改字或清空即视为取消。
+    Future<void>.delayed(const Duration(seconds: 2), () async {
+      if (!mounted || _sending) return;
+      if (_composerController.text.trim() != text) return;
+      await _sendComment();
+    });
+  }
+
   Future<void> _loadAllComments() async {
     if (_loadingAll) return;
     setState(() {
@@ -1262,8 +1312,11 @@ class _CommentsViewState extends State<_CommentsView> {
         _replyForm = null;
         _replyAttachments.clear();
         _showSmileys = false;
+        _presetPrefilled = false;
       });
       _composerFocusNode.unfocus();
+      // 记住已回复过，下次打开同一帖子不再自动填入。
+      await ReplyPresetService.instance.markReplied(widget.detail.tid);
 
       try {
         if (_targetMode) {
@@ -1360,6 +1413,7 @@ class _CommentsViewState extends State<_CommentsView> {
             },
           ),
         ),
+        if (_presetPrefilled) _buildPresetBanner(theme, colors),
         SafeArea(
           top: false,
           child: _CommentComposer(
@@ -1537,6 +1591,41 @@ class _CommentsViewState extends State<_CommentsView> {
                   ),
                 ),
       ],
+    );
+  }
+
+  /// 已自动填入回复内容时的提示条。
+  Widget _buildPresetBanner(ThemeData theme, ColorScheme colors) {
+    return Material(
+      color: colors.tertiaryContainer.withValues(alpha: 0.45),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 6, 6, 6),
+        child: Row(
+          children: [
+            Icon(
+              Icons.lock_open_rounded,
+              size: 16,
+              color: colors.onTertiaryContainer,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '该帖需回复可见，已自动填入回复内容，点击发送即可',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: colors.onTertiaryContainer,
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: () {
+                _composerController.clear();
+                setState(() => _presetPrefilled = false);
+              },
+              child: const Text('清空'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

@@ -675,6 +675,12 @@ class ForumParser {
         continue;
       }
 
+      // 引用块里的文字是被引用楼层的原话，即使出现“回复可见”等字样
+      // 也只是转述（例如转引版规公告），不能当作隐藏提示整段删掉。
+      if (node.querySelector('blockquote') != null) {
+        continue;
+      }
+
       final text = _cleanInline(node.text);
       if (_isHiddenPrompt(text)) {
         hiddenHint ??= text;
@@ -2222,22 +2228,33 @@ class ForumParser {
 
   bool _isHiddenPrompt(String text) {
     final normalized = _cleanInline(text);
+    if (normalized.isEmpty) return false;
+
+    // 真正的隐藏提示是模板输出的一小段独立文字（通常 10~30 字）。
+    // 而正文或引用里转述“回复可见”“隐藏内容”等政策的段落往往很长，
+    // 因此对通用判词加一个长度门限：只有够短的文本才算隐藏提示，
+    // 避免把公告正文、版规说明误判成隐藏内容并整段删除。
+    final bool isCompactHint = normalized.length <= 40;
+
     return normalized.contains('如果您要查看本帖隐藏内容请回复') ||
-        normalized.contains('回复后可见') ||
-        normalized.contains('回复可见') ||
-        normalized.contains('回复后才可见') ||
-        normalized.contains('回复后才可以查看') ||
-        normalized.contains('回复后才可以浏览') ||
-        normalized.contains('需要回复才可以查看') ||
-        normalized.contains('需要回复才可以浏览') ||
-        normalized.contains('需要回复才能看到') ||
-        normalized.contains('需要回复才能查看') ||
-        normalized.contains('您没有权限查看') ||
-        normalized.contains('没有权限查看') ||
-        normalized.contains('无权查看') ||
-        (normalized.contains('阅读权限') && normalized.contains('不足')) ||
-        (normalized.contains('隐藏内容') &&
-            (normalized.contains('请回复') || normalized.contains('回复')));
+        (isCompactHint &&
+            (normalized.contains('回复后可见') ||
+                normalized.contains('回复可见') ||
+                normalized.contains('回复后才可见') ||
+                normalized.contains('回复后才可以查看') ||
+                normalized.contains('回复后才可以浏览') ||
+                normalized.contains('需要回复才可以查看') ||
+                normalized.contains('需要回复才可以浏览') ||
+                normalized.contains('需要回复才能看到') ||
+                normalized.contains('需要回复才能查看') ||
+                normalized.contains('您没有权限查看') ||
+                normalized.contains('没有权限查看') ||
+                normalized.contains('无权查看') ||
+                (normalized.contains('阅读权限') &&
+                    normalized.contains('不足')) ||
+                (normalized.contains('隐藏内容') &&
+                    (normalized.contains('请回复') ||
+                        normalized.contains('回复')))));
   }
 
   String? _extractThreadCount(

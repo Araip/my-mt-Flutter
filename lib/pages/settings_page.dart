@@ -8,6 +8,7 @@ import '../services/theme_service.dart';
 import '../services/update_service.dart';
 import 'about_page.dart';
 import 'login_page.dart';
+import '../services/reply_preset_service.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -21,6 +22,7 @@ class _SettingsPageState extends State<SettingsPage> {
   final _theme = ThemeService.instance;
   final _updates = UpdateService.instance;
   final _commentFilter = CommentFilterService.instance;
+  final _replyPreset = ReplyPresetService.instance;
 
   bool _autoCheck = true;
   int _skippedVersionCode = 0;
@@ -34,6 +36,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _api.addLoginListener(_refresh);
     _theme.addListener(_refresh);
     _commentFilter.addListener(_refresh);
+    _replyPreset.addListener(_refresh);
     _load();
   }
 
@@ -42,6 +45,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _api.removeLoginListener(_refresh);
     _theme.removeListener(_refresh);
     _commentFilter.removeListener(_refresh);
+    _replyPreset.removeListener(_refresh);
     super.dispose();
   }
 
@@ -51,6 +55,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _load() async {
     await _commentFilter.load();
+    await _replyPreset.load();
     final auto = await _updates.getStartupCheckEnabled();
     final skipped = await _updates.getSkippedVersionCode();
     String version = '';
@@ -105,6 +110,45 @@ class _SettingsPageState extends State<SettingsPage> {
     );
     if (saved == true) {
       await _commentFilter.setKeywordsFromText(controller.text);
+    }
+    controller.dispose();
+  }
+
+  Future<void> _editReplyTemplate() async {
+    final controller = TextEditingController(text: _replyPreset.template);
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('回复内容'),
+        content: SizedBox(
+          width: 420,
+          child: TextField(
+            controller: controller,
+            autofocus: true,
+            minLines: 2,
+            maxLines: 5,
+            decoration: const InputDecoration(
+              hintText: '例如：感谢分享，回复支持一下~',
+              helperText: '打开「回复可见」的帖子时会自动填入这段内容，留空则用默认文案',
+              alignLabelWithHint: true,
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+    if (saved == true) {
+      await _replyPreset.setTemplate(controller.text);
+      if (mounted) setState(() {});
     }
     controller.dispose();
   }
@@ -506,6 +550,65 @@ class _SettingsPageState extends State<SettingsPage> {
                       value: _commentFilter.noticesEnabled,
                       onChanged: _commentFilter.setNoticesEnabled,
                     ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                const _SectionTitle('回帖'),
+                const SizedBox(height: 6),
+                _Group(
+                  children: [
+                    SwitchListTile(
+                      secondary: const Icon(Icons.edit_note_rounded),
+                      title: const Text('自动填入回复内容'),
+                      subtitle: const Text(
+                        '打开「回复可见」的帖子时，自动把下方内容填进输入框',
+                      ),
+                      value: _replyPreset.prefillEnabled,
+                      onChanged: (value) async {
+                        await _replyPreset.setPrefillEnabled(value);
+                        if (mounted) setState(() {});
+                      },
+                    ),
+                    const Divider(height: 1),
+                    ListTile(
+                      leading: const Icon(Icons.short_text_rounded),
+                      title: const Text('回复内容'),
+                      subtitle: Text(
+                        _replyPreset.effectiveTemplate,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                      onTap: _editReplyTemplate,
+                    ),
+                    const Divider(height: 1),
+                    SwitchListTile(
+                      secondary: const Icon(Icons.send_rounded),
+                      title: const Text('自动发送'),
+                      subtitle: const Text(
+                        '填入后自动发出；可能触发论坛发帖间隔限制，建议保持关闭',
+                      ),
+                      value: _replyPreset.autoSendEnabled,
+                      onChanged: (value) async {
+                        await _replyPreset.setAutoSendEnabled(value);
+                        if (mounted) setState(() {});
+                      },
+                    ),
+                    if (_replyPreset.repliedCount > 0) ...[
+                      const Divider(height: 1),
+                      ListTile(
+                        leading: const Icon(Icons.history_rounded),
+                        title: Text('已回复过 ${_replyPreset.repliedCount} 个帖子'),
+                        subtitle: const Text('这些帖子不会再自动填入回复'),
+                        trailing: TextButton(
+                          onPressed: () async {
+                            await _replyPreset.clearRepliedHistory();
+                            if (mounted) setState(() {});
+                          },
+                          child: const Text('清除'),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
                 const SizedBox(height: 18),
