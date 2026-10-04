@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 env:
-  FLUTTER_VERSION: "3.47.1"
+  FLUTTER_VERSION: "3.47.6"
   UPDATE_URL: "https://loveqin.fun/Mt/update.json"
 
 jobs:
