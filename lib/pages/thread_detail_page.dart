@@ -369,8 +369,9 @@ class _ThreadDetailPageState extends State<ThreadDetailPage> {
       appBar: AppBar(
         title: Text(
           detail?.title ?? '帖子详情',
-          maxLines: 1,
+          maxLines: 2,
           overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontSize: 16, height: 1.25),
         ),
         actions: [
           if (detail != null)
