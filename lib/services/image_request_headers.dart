@@ -1,3 +1,7 @@
+import 'package:cookie_jar/cookie_jar.dart';
+import 'package:dio/dio.dart';
+import 'package:dio_cookie_manager/dio_cookie_manager.dart';
+
 /// 图床（`icdn.binmt.cc` 等）在阿里云 ESA WAF 后面：不带 `acw_sc__v2` 通行
 /// Cookie 去取图，服务器会 307 重定向回**它自己**，而 Dart 的 HttpClient /
 /// CachedNetworkImage 都不保存 Cookie，于是每个图片请求都在「自己跳自己」的
