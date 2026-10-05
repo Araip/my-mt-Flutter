@@ -8,6 +8,10 @@ on:
     tags: [ "v*" ]
   workflow_dispatch:
 
+# 顶层默认权限是 read，创建 Release 必须显式给 contents: write
+permissions:
+  contents: write
+
 env:
   FLUTTER_VERSION: "3.47.6"
   UPDATE_URL: "https://loveqin.fun/Mt/update.json"
