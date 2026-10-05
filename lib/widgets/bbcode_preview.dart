@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../data/smiley_catalog.dart';
+import '../../services/image_request_headers.dart';
 
 /// 发帖前的本地 BBCode 预览。
 ///
@@ -418,6 +419,7 @@ class _BbNodeView extends StatelessWidget {
         borderRadius: BorderRadius.circular(smiley ? 4 : 12),
         child: CachedNetworkImage(
           imageUrl: url,
+          httpHeaders: ImageRequestHeaders.headersFor(url),
           width: smiley ? 32 : null,
           height: smiley ? 32 : null,
           fit: smiley ? BoxFit.contain : BoxFit.fitWidth,

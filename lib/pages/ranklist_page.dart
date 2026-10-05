@@ -5,6 +5,7 @@ import '../models/models.dart';
 import '../services/api_service.dart';
 import '../widgets/app_state_view.dart';
 import 'account/user_profile_page.dart';
+import '../../services/image_request_headers.dart';
 
 class RanklistPage extends StatefulWidget {
   const RanklistPage({super.key});
@@ -474,6 +475,7 @@ class _RankAvatar extends StatelessWidget {
     return ClipOval(
       child: CachedNetworkImage(
         imageUrl: url,
+        httpHeaders: ImageRequestHeaders.headersFor(url),
         width: radius * 2,
         height: radius * 2,
         fit: BoxFit.cover,

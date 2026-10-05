@@ -2,6 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../models/models.dart';
+import '../../services/image_request_headers.dart';
 
 /// 全局统一帖子列表卡片。
 ///
@@ -262,6 +263,7 @@ class _ThumbnailStrip extends StatelessWidget {
                 aspectRatio: 1.18,
                 child: CachedNetworkImage(
                   imageUrl: thumbs[i],
+                  httpHeaders: ImageRequestHeaders.headersFor(thumbs[i]),
                   fit: BoxFit.cover,
                   fadeInDuration: const Duration(milliseconds: 120),
                   placeholder: (_, __) => Container(

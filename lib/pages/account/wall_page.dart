@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../models/models.dart';
 import '../../services/api_service.dart';
 import '../../widgets/app_state_view.dart';
+import '../../../services/image_request_headers.dart';
 
 class WallPage extends StatefulWidget {
   final String uid;
@@ -380,6 +381,7 @@ class _Avatar extends StatelessWidget {
     return ClipOval(
       child: CachedNetworkImage(
         imageUrl: imageUrl,
+        httpHeaders: ImageRequestHeaders.headersFor(imageUrl),
         width: 42,
         height: 42,
         fit: BoxFit.cover,

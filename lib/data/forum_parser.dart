@@ -142,6 +142,7 @@ class ForumParser {
       )) {
         final src = img.attributes['file'] ??
             img.attributes['data-src'] ??
+            attributes['comiis_loadimages'] ??
             img.attributes['data-original'] ??
             img.attributes['src'];
         final url = _absoluteUrl(src, baseUrl);
@@ -629,10 +630,12 @@ class ForumParser {
           image.attributes['file'] ??
           image.attributes['data-original'] ??
           image.attributes['data-src'] ??
+          attributes['comiis_loadimages'] ??
           image.attributes['src'];
       final normalized = _absoluteUrl(candidate, baseUrl);
       if (normalized == null ||
-          SmileyCatalog.isForumSmileyUrl(normalized)) {
+          SmileyCatalog.isForumSmileyUrl(normalized) ||
+          _isPlaceholderImage(normalized)) {
         continue;
       }
 
@@ -853,9 +856,10 @@ class ForumParser {
           image.attributes['file'] ??
           image.attributes['data-original'] ??
           image.attributes['data-src'] ??
+          attributes['comiis_loadimages'] ??
           image.attributes['src'];
       final url = _absoluteUrl(candidate, baseUrl);
-      if (url == null) return false;
+      if (url == null || _isPlaceholderImage(url)) return false;
       final lower = url.toLowerCase();
       final isEmoji = image.attributes['smilieid'] != null ||
           image.classes.any(
@@ -1505,6 +1509,7 @@ class ForumParser {
               node.attributes['file'] ??
               node.attributes['data-original'] ??
               node.attributes['data-src'] ??
+              attributes['comiis_loadimages'] ??
               node.attributes['src'];
           final url = _absoluteUrl(rawUrl, baseUrl);
           if (url == null || url.isEmpty) {
@@ -2100,6 +2105,7 @@ class ForumParser {
           image.attributes['file'] ??
           image.attributes['data-original'] ??
           image.attributes['data-src'] ??
+          attributes['comiis_loadimages'] ??
           image.attributes['src'];
       final url = _absoluteUrl(candidate, baseUrl);
       if (url == null || !_isPostContentImage(url, image)) {
@@ -2135,6 +2141,7 @@ class ForumParser {
             image.attributes['file'] ??
             image.attributes['data-original'] ??
             image.attributes['data-src'] ??
+            attributes['comiis_loadimages'] ??
             image.attributes['src'];
         final imageUrl = _absoluteUrl(candidate, baseUrl);
         return imageUrl != null && _isPostContentImage(imageUrl, image);
@@ -2157,16 +2164,29 @@ class ForumParser {
     return result;
   }
 
+  /// Comiis 模板的懒加载占位图。
+  ///
+  /// 真实地址写在 `comiis_loadimages` 上，`src` 只是一张 1.4KB 的
+  /// `template/comiis_app/pic/none.png`。占位图绝不能当成正文图片收进来，
+  /// 否则正文里会多出一堆破图。
+  bool _isPlaceholderImage(String url) {
+    final lower = url.toLowerCase();
+    return lower.contains('comiis_app/pic/none.png') ||
+        lower.endsWith('/none.png') ||
+        lower.contains('/pic/none.');
+  }
+
   List<String> _extractImagesFromRaw(String raw, String baseUrl) {
     final result = <String>[];
     final pattern = RegExp(
-      r'''<img\b[^>]*(?:zoomfile|file|data-original|data-src|src)\s*=\s*['"]([^'"]+)['"][^>]*>''',
+      r'''<img\b[^>]*(?:zoomfile|file|data-original|data-src|comiis_loadimages|src)\s*=\s*['"]([^'"]+)['"][^>]*>''',
       caseSensitive: false,
     );
     for (final match in pattern.allMatches(raw)) {
       final url = _absoluteUrl(match.group(1), baseUrl);
       if (url == null ||
           SmileyCatalog.isForumSmileyUrl(url) ||
+          _isPlaceholderImage(url) ||
           url.contains('/static/image/') ||
           url.contains('avatar.php') ||
           url.contains('/uc_server/avatar')) {

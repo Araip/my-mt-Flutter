@@ -10,6 +10,7 @@ import 'social_center_page.dart';
 import 'poke_page.dart';
 import 'wall_page.dart';
 import '../../widgets/app_state_view.dart';
+import '../../../services/image_request_headers.dart';
 
 class UserProfilePage extends StatefulWidget {
   final String uid;
@@ -448,6 +449,7 @@ class _ProfileHeader extends StatelessWidget {
               Positioned.fill(
                 child: CachedNetworkImage(
                   imageUrl: profile.backgroundUrl!,
+                  httpHeaders: ImageRequestHeaders.headersFor(profile.backgroundUrl!),
                   fit: BoxFit.cover,
                   errorWidget: (_, __, ___) => const SizedBox.shrink(),
                 ),
@@ -678,6 +680,7 @@ class _Medals extends StatelessWidget {
               for (final url in urls)
                 CachedNetworkImage(
                   imageUrl: url,
+                  httpHeaders: ImageRequestHeaders.headersFor(url),
                   width: 28,
                   height: 28,
                   fit: BoxFit.contain,

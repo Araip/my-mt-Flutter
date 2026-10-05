@@ -19,6 +19,7 @@ import '../routes/forum_link_router.dart';
 import 'account/user_profile_page.dart';
 import 'thread_editor_page.dart';
 import '../services/reply_preset_service.dart';
+import '../../services/image_request_headers.dart';
 
 Future<({PostEditorForm form, PostAttachmentUploadResult attachment})?>
     _pickAndUploadReplyImage({
@@ -150,6 +151,20 @@ class _ThreadDetailPageState extends State<ThreadDetailPage> {
 
 
 
+  /// 收集详情里所有图片地址，用于给图床做 WAF 预热。
+  static List<String> _collectImageUrls(ThreadDetail? detail) {
+    if (detail == null) return const <String>[];
+    final urls = <String>[];
+    for (final post in detail.posts) {
+      urls.addAll(post.images);
+      for (final item in post.richContent) {
+        final url = item.url;
+        if (url != null && url.isNotEmpty) urls.add(url);
+      }
+    }
+    return urls;
+  }
+
   Future<void> _loadData() async {
     if (_loading) return;
     setState(() {
@@ -175,6 +190,11 @@ class _ThreadDetailPageState extends State<ThreadDetailPage> {
       } else {
         detail = await _api.getThreadDetail(widget.tid, page: 1);
       }
+      // 图床在 WAF 后面，先把通行 Cookie 预热好，否则帖子首屏图片会全军覆没。
+      await ImageRequestHeaders.warmUp(<String>[
+        ..._collectImageUrls(detail),
+        ..._collectImageUrls(targetDetail),
+      ]);
       if (!mounted) return;
       setState(() {
         _detail = detail;
@@ -2480,6 +2500,7 @@ class _RichContentView extends StatelessWidget {
                   borderRadius: BorderRadius.circular(12),
                   child: CachedNetworkImage(
                     imageUrl: url,
+                    httpHeaders: ImageRequestHeaders.headersFor(url),
                     fit: BoxFit.fitWidth,
                     placeholder: (_, __) => Container(
                       constraints: const BoxConstraints(minHeight: 140),
@@ -2917,6 +2938,7 @@ class _InlineRichTextState extends State<_InlineRichText> {
                 padding: const EdgeInsets.symmetric(horizontal: 1),
                 child: CachedNetworkImage(
                   imageUrl: url,
+                  httpHeaders: ImageRequestHeaders.headersFor(url),
                   width: 22,
                   height: 22,
                   errorWidget: (_, __, ___) =>
@@ -3742,6 +3764,7 @@ class _PostImages extends StatelessWidget {
           borderRadius: BorderRadius.circular(12),
           child: CachedNetworkImage(
             imageUrl: images.first, fit: BoxFit.cover,
+            httpHeaders: ImageRequestHeaders.headersFor(images.first),
             placeholder: (_, __) => Container(height: 200, color: Theme.of(context).colorScheme.surfaceContainerHighest,
               child: const Center(child: CircularProgressIndicator())),
             errorWidget: (_, __, ___) => const SizedBox.shrink()),
@@ -3758,6 +3781,7 @@ class _PostImages extends StatelessWidget {
           borderRadius: BorderRadius.circular(8),
           child: CachedNetworkImage(
             imageUrl: images[index], fit: BoxFit.cover,
+            httpHeaders: ImageRequestHeaders.headersFor(images[index]),
             placeholder: (_, __) => Container(color: Theme.of(context).colorScheme.surfaceContainerHighest),
             errorWidget: (_, __, ___) => Container(color: Theme.of(context).colorScheme.surfaceContainerHighest,
               child: const Icon(Icons.broken_image_outlined))),
@@ -3869,6 +3893,7 @@ class _SmileyEditingController extends TextEditingController {
             padding: const EdgeInsets.symmetric(horizontal: 1),
             child: CachedNetworkImage(
               imageUrl: url,
+              httpHeaders: ImageRequestHeaders.headersFor(url),
               width: 26,
               height: 26,
               fit: BoxFit.contain,
@@ -4301,6 +4326,7 @@ class _SmileyGrid extends StatelessWidget {
             child: Center(
               child: CachedNetworkImage(
                 imageUrl: url,
+                httpHeaders: ImageRequestHeaders.headersFor(url),
                 width: 34,
                 height: 34,
                 fit: BoxFit.contain,

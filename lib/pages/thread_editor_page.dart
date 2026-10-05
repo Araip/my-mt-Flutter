@@ -7,6 +7,7 @@ import '../models/models.dart';
 import '../services/api_service.dart';
 import '../widgets/app_state_view.dart';
 import '../widgets/bbcode_preview.dart';
+import '../../services/image_request_headers.dart';
 
 class ThreadEditorPage extends StatefulWidget {
   final bool editing;
@@ -1381,6 +1382,7 @@ class _AttachmentItem extends StatelessWidget {
                     )
                   : CachedNetworkImage(
                       imageUrl: attachment.url,
+                      httpHeaders: ImageRequestHeaders.headersFor(attachment.url),
                       fit: BoxFit.cover,
                       placeholder: (_, __) => ColoredBox(
                         color: colors.surfaceContainerHighest,
@@ -1533,6 +1535,7 @@ class _ForumSmileyEditingController extends TextEditingController {
             padding: const EdgeInsets.symmetric(horizontal: 1),
             child: CachedNetworkImage(
               imageUrl: url,
+              httpHeaders: ImageRequestHeaders.headersFor(url),
               width: 26,
               height: 26,
               fit: BoxFit.contain,
@@ -1604,6 +1607,7 @@ class _ForumSmileyPicker extends StatelessWidget {
                             child: Center(
                               child: CachedNetworkImage(
                                 imageUrl: url,
+                                httpHeaders: ImageRequestHeaders.headersFor(url),
                                 width: 34,
                                 height: 34,
                                 fit: BoxFit.contain,

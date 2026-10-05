@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import '../models/models.dart';
 import '../services/api_service.dart';
 import '../widgets/app_state_view.dart';
+import '../../services/image_request_headers.dart';
 
 class MallPage extends StatefulWidget {
   const MallPage({super.key});
@@ -261,6 +262,7 @@ class _MallCard extends StatelessWidget {
                     ? const Icon(Icons.card_giftcard_rounded)
                     : CachedNetworkImage(
                         imageUrl: item.imageUrl!,
+                        httpHeaders: ImageRequestHeaders.headersFor(item.imageUrl!),
                         fit: BoxFit.cover,
                         // 关闭淡入淡出：占位与正式图互换时不闪烁
                         fadeInDuration: Duration.zero,
@@ -518,6 +520,7 @@ class _MallDetailPageState extends State<MallDetailPage> {
                               aspectRatio: 16 / 10,
                               child: CachedNetworkImage(
                                 imageUrl: imageUrl!,
+                                httpHeaders: ImageRequestHeaders.headersFor(imageUrl!),
                                 fit: BoxFit.contain,
                                 color: null,
                                 // 关闭淡入淡出，避免图片加载过程中反复闪烁

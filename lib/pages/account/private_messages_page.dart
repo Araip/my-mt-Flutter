@@ -11,6 +11,7 @@ import '../../services/image_host_service.dart';
 import '../../services/message_badge_service.dart';
 import '../../widgets/app_state_view.dart';
 import 'user_profile_page.dart';
+import '../../../services/image_request_headers.dart';
 
 class PrivateMessagesPage extends StatefulWidget {
   const PrivateMessagesPage({super.key});
@@ -448,6 +449,7 @@ class _PmConversationPageState extends State<PmConversationPage> {
               maxScale: 5,
               child: CachedNetworkImage(
                 imageUrl: url,
+                httpHeaders: ImageRequestHeaders.headersFor(url),
                 fit: BoxFit.contain,
                 placeholder: (_, __) => const SizedBox(
                   width: 280,
@@ -650,6 +652,7 @@ class _PmConversationPageState extends State<PmConversationPage> {
                                               borderRadius: BorderRadius.circular(10),
                                               child: CachedNetworkImage(
                                                 imageUrl: imageUrl,
+                                                httpHeaders: ImageRequestHeaders.headersFor(imageUrl),
                                                 width: SmileyCatalog.isForumSmileyUrl(imageUrl)
                                                     ? 30
                                                     : 180,
@@ -921,6 +924,7 @@ class _PmInlineMessageText extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 1),
             child: CachedNetworkImage(
               imageUrl: url,
+              httpHeaders: ImageRequestHeaders.headersFor(url),
               width: 28,
               height: 28,
               fit: BoxFit.contain,
@@ -1002,6 +1006,7 @@ class _PmSmileyEditingController extends TextEditingController {
           alignment: PlaceholderAlignment.middle,
           child: CachedNetworkImage(
             imageUrl: url,
+            httpHeaders: ImageRequestHeaders.headersFor(url),
             width: 26,
             height: 26,
             fit: BoxFit.contain,
@@ -1064,6 +1069,7 @@ class _PmSmileyPicker extends StatelessWidget {
                           child: Center(
                             child: CachedNetworkImage(
                               imageUrl: url,
+                              httpHeaders: ImageRequestHeaders.headersFor(url),
                               width: 32,
                               height: 32,
                               fit: BoxFit.contain,

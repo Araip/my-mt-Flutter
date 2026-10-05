@@ -13,6 +13,7 @@ import 'account/user_group_page.dart';
 import 'account/social_center_page.dart';
 import 'account/poke_page.dart';
 import '../routes/thread_routes.dart';
+import '../../services/image_request_headers.dart';
 
 /// Discuz 论坛通知中心。
 ///
@@ -1055,6 +1056,7 @@ class _NoticeAvatar extends StatelessWidget {
     return ClipOval(
       child: CachedNetworkImage(
         imageUrl: url,
+        httpHeaders: ImageRequestHeaders.headersFor(url),
         width: 40,
         height: 40,
         fit: BoxFit.cover,

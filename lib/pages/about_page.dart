@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../services/analytics_service.dart';
 import '../services/feedback_service.dart';
 import '../services/update_service.dart';
+import '../../services/image_request_headers.dart';
 
 class AboutPage extends StatefulWidget {
   const AboutPage({super.key});
@@ -471,6 +472,7 @@ class _AboutPageState extends State<AboutPage> {
               child: ClipOval(
                 child: Image.network(
                   _avatarUrl,
+                  headers: ImageRequestHeaders.headersFor(_avatarUrl),
                   fit: BoxFit.cover,
                   errorBuilder: (context, error, stackTrace) => ColoredBox(
                     color: colors.surfaceContainerHighest,
