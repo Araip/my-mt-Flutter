@@ -142,7 +142,7 @@ class ForumParser {
       )) {
         final src = img.attributes['file'] ??
             img.attributes['data-src'] ??
-            attributes['comiis_loadimages'] ??
+            img.attributes['comiis_loadimages'] ??
             img.attributes['data-original'] ??
             img.attributes['src'];
         final url = _absoluteUrl(src, baseUrl);
@@ -630,7 +630,7 @@ class ForumParser {
           image.attributes['file'] ??
           image.attributes['data-original'] ??
           image.attributes['data-src'] ??
-          attributes['comiis_loadimages'] ??
+          image.attributes['comiis_loadimages'] ??
           image.attributes['src'];
       final normalized = _absoluteUrl(candidate, baseUrl);
       if (normalized == null ||
@@ -856,7 +856,7 @@ class ForumParser {
           image.attributes['file'] ??
           image.attributes['data-original'] ??
           image.attributes['data-src'] ??
-          attributes['comiis_loadimages'] ??
+          image.attributes['comiis_loadimages'] ??
           image.attributes['src'];
       final url = _absoluteUrl(candidate, baseUrl);
       if (url == null || _isPlaceholderImage(url)) return false;
@@ -1509,7 +1509,7 @@ class ForumParser {
               node.attributes['file'] ??
               node.attributes['data-original'] ??
               node.attributes['data-src'] ??
-              attributes['comiis_loadimages'] ??
+              node.attributes['comiis_loadimages'] ??
               node.attributes['src'];
           final url = _absoluteUrl(rawUrl, baseUrl);
           if (url == null || url.isEmpty) {
@@ -2105,7 +2105,7 @@ class ForumParser {
           image.attributes['file'] ??
           image.attributes['data-original'] ??
           image.attributes['data-src'] ??
-          attributes['comiis_loadimages'] ??
+          image.attributes['comiis_loadimages'] ??
           image.attributes['src'];
       final url = _absoluteUrl(candidate, baseUrl);
       if (url == null || !_isPostContentImage(url, image)) {
@@ -2141,7 +2141,7 @@ class ForumParser {
             image.attributes['file'] ??
             image.attributes['data-original'] ??
             image.attributes['data-src'] ??
-            attributes['comiis_loadimages'] ??
+            image.attributes['comiis_loadimages'] ??
             image.attributes['src'];
         final imageUrl = _absoluteUrl(candidate, baseUrl);
         return imageUrl != null && _isPostContentImage(imageUrl, image);

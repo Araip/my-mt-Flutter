@@ -1489,7 +1489,7 @@ class UserCenterParser {
               node.attributes['file'] ??
               node.attributes['data-original'] ??
               node.attributes['data-src'] ??
-              attributes['comiis_loadimages'] ??
+              node.attributes['comiis_loadimages'] ??
               node.attributes['src'];
           final url = _absoluteUrl(rawUrl, baseUrl);
           final marker = url == null ? null : SmileyCatalog.markerForUrl(url);
