@@ -253,10 +253,14 @@ class ApiService {
     // 同样会被拦截的写操作（发帖 / 评论）。
     final head = body.trimLeft();
     if (body.contains('<![CDATA[') || head.startsWith('<?xml')) return false;
+    // 结构判定优先；但只要 body 里能确凿地提取出 acw_sc__v2 的 arg1，就说明
+    // 这是挑战页 —— 即便 content-type 缺失或体积超限让结构判定漏判，也绝不能
+    // 把挑战页当正常页面交给解析器（那样只会得到一页空白，用户无从下手）。
     if (!looksLikeInterstitialPage(
-      body,
-      response.headers.value('content-type'),
-    )) {
+          body,
+          response.headers.value('content-type'),
+        ) &&
+        !WafChallenge.isChallenge(body)) {
       return false;
     }
 
@@ -667,6 +671,17 @@ class ApiService {
     }
     if (status >= 400) {
       throw StateError('帖子加载失败（HTTP $status）');
+    }
+
+    // 被 WAF 挑战页顶回来时，拦截器已经尝试过自动破解；如果到这里还是一张
+    // 挑战页，就别拿它去解析 —— 解析结果只会是「没有解析到楼层内容」，
+    // 用户看到的是一页空白，无从判断。这里直接给出可读提示，让用户重试。
+    if (WafChallenge.isChallenge(body) ||
+        looksLikeInterstitialPage(
+          body,
+          response.headers.value('content-type'),
+        )) {
+      throw StateError('帖子内容被人机验证拦截，请稍后重试');
     }
 
     final detail = _parser.parseThreadDetail(

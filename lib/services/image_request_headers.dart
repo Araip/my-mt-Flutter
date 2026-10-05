@@ -33,13 +33,19 @@ class ImageRequestHeaders {
   static const String _accept =
       'image/avif,image/webp,image/apng,image/*,*/*;q=0.8';
 
-  static const Duration _requestTimeout = Duration(seconds: 8);
+  static const Duration _requestTimeout = Duration(seconds: 6);
 
   /// 失败后多久内不再尝试同一个 host。
   static const Duration _failCooldown = Duration(minutes: 30);
 
   /// 单轮预热最多同时处理几个 host。
   static const int _maxParallelHosts = 2;
+
+  /// 一次 [warmUp] 的总时间预算。
+  ///
+  /// 预热只是「锦上添花」，绝不能把调用方拖住：预算用完后剩下的 host 直接进
+  /// 冷却，让 [warmUp] 立刻返回。即便如此，调用方也**不应该 await 它来挡渲染**。
+  static const Duration _warmUpBudget = Duration(seconds: 12);
 
   /// **绝不去碰的 host**：论坛自身的域名。
   ///
@@ -139,7 +145,15 @@ class ImageRequestHeaders {
     }
     if (todo.isEmpty) return;
 
+    final deadline = DateTime.now().add(_warmUpBudget);
     for (var i = 0; i < todo.length; i += _maxParallelHosts) {
+      if (!DateTime.now().isBefore(deadline)) {
+        // 预算用尽：剩下的 host 进冷却，立刻返回，别让调用方继续等。
+        for (final host in todo.sublist(i)) {
+          _cooldownUntil[host] = DateTime.now().add(_failCooldown);
+        }
+        return;
+      }
       final end = i + _maxParallelHosts < todo.length
           ? i + _maxParallelHosts
           : todo.length;

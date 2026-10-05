@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -190,17 +192,26 @@ class _ThreadDetailPageState extends State<ThreadDetailPage> {
       } else {
         detail = await _api.getThreadDetail(widget.tid, page: 1);
       }
-      // 图床在 WAF 后面，先把通行 Cookie 预热好，否则帖子首屏图片会全军覆没。
-      await ImageRequestHeaders.warmUp(<String>[
-        ..._collectImageUrls(detail),
-        ..._collectImageUrls(targetDetail),
-      ]);
       if (!mounted) return;
       setState(() {
         _detail = detail;
         _page = 1;
         _hasMore = detail.posts.isNotEmpty;
       });
+      // 图床在 WAF 后面，需要先预热出通行 Cookie，帖子首屏图片才不会全军覆没。
+      //
+      // ⚠️ 这里**绝不能 await**：预热要打真实网络请求，最坏情况每个 host 两次
+      // 超时。一旦 await，就变成「正文其实已经拿到了、界面还在转圈」——用户看到的
+      // 就是「帖子内容打不开」。所以丢到后台跑，等 Cookie 到位后再重建一次，
+      // 让图片自己补上。
+      unawaited(
+        ImageRequestHeaders.warmUp(<String>[
+          ..._collectImageUrls(detail),
+          ..._collectImageUrls(targetDetail),
+        ]).then((_) {
+          if (mounted) setState(() {});
+        }),
+      );
       if (targetDetail != null && !_targetCommentsOpened) {
         _targetCommentsOpened = true;
         // 评论区已内联到帖子正文下方，这里只切到「定位模式」，
