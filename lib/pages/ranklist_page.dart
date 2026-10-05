@@ -5,7 +5,7 @@ import '../models/models.dart';
 import '../services/api_service.dart';
 import '../widgets/app_state_view.dart';
 import 'account/user_profile_page.dart';
-import '../../services/image_request_headers.dart';
+import '../services/image_request_headers.dart';
 
 class RanklistPage extends StatefulWidget {
   const RanklistPage({super.key});

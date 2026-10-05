@@ -5,7 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../services/analytics_service.dart';
 import '../services/feedback_service.dart';
 import '../services/update_service.dart';
-import '../../services/image_request_headers.dart';
+import '../services/image_request_headers.dart';
 
 class AboutPage extends StatefulWidget {
   const AboutPage({super.key});

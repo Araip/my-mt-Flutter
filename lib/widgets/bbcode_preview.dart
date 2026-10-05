@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../data/smiley_catalog.dart';
-import '../../services/image_request_headers.dart';
+import '../services/image_request_headers.dart';
 
 /// 发帖前的本地 BBCode 预览。
 ///

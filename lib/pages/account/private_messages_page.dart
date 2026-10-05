@@ -11,7 +11,7 @@ import '../../services/image_host_service.dart';
 import '../../services/message_badge_service.dart';
 import '../../widgets/app_state_view.dart';
 import 'user_profile_page.dart';
-import '../../../services/image_request_headers.dart';
+import '../../services/image_request_headers.dart';
 
 class PrivateMessagesPage extends StatefulWidget {
   const PrivateMessagesPage({super.key});

@@ -19,7 +19,7 @@ import '../routes/forum_link_router.dart';
 import 'account/user_profile_page.dart';
 import 'thread_editor_page.dart';
 import '../services/reply_preset_service.dart';
-import '../../services/image_request_headers.dart';
+import '../services/image_request_headers.dart';
 
 Future<({PostEditorForm form, PostAttachmentUploadResult attachment})?>
     _pickAndUploadReplyImage({

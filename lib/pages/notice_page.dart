@@ -13,7 +13,7 @@ import 'account/user_group_page.dart';
 import 'account/social_center_page.dart';
 import 'account/poke_page.dart';
 import '../routes/thread_routes.dart';
-import '../../services/image_request_headers.dart';
+import '../services/image_request_headers.dart';
 
 /// Discuz 论坛通知中心。
 ///

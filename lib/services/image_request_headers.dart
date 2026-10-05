@@ -1,176 +1,227 @@
-import 'dart:async';
-
-import 'package:cookie_jar/cookie_jar.dart';
-import 'package:dio/dio.dart';
-import 'package:dio_cookie_manager/dio_cookie_manager.dart';
-
-/// 帖子/头像等站外图片的请求头，以及图床 WAF 通行 Cookie 的统一入口。
+/// 图床（`icdn.binmt.cc` 等）在阿里云 ESA WAF 后面：不带 `acw_sc__v2` 通行
+/// Cookie 去取图，服务器会 307 重定向回**它自己**，而 Dart 的 HttpClient /
+/// CachedNetworkImage 都不保存 Cookie，于是每个图片请求都在「自己跳自己」的
+/// 死循环里打转，界面上就全是破图。
 ///
-/// ## 为什么要这个东西
+/// 这个服务负责「先拿通行 Cookie，再交给图片组件」：
+/// 1. [warmUp] 对给定地址所在的 host 做一次两段式预热（先收 Cookie，再自证）；
+/// 2. [headersFor] 把已经拿到的 Cookie 镜像成图片组件的请求头。
 ///
-/// 站点把帖子图片放到了新图床 `icdn.binmt.cc`，该域名挂在阿里云 ESA WAF
-/// 后面。不带通行 Cookie 去取图，服务器会应答：
+/// 两条硬约束（都踩过坑，别再改回去）：
+/// - **[headersFor] 绝不发网络请求**。它会在 `build()` 里被调用，一旦在这里
+///   发请求，就变成「每次重建都打一轮网络」；论坛域名下的图片注定拿不到
+///   Cookie，缓存不了，于是无限重试，把站点的 WAF 惹毛，连累正常接口请求
+///   （表现就是首页/帖子列表空白）。所以预热只能由 [warmUp] 显式触发。
+/// - **每个 host 每会话最多预热一次**，失败进冷却；且一次最多并行几个 host。
+///   图片加载不出来可以忍，把主流程拖垮不行。
 ///
-/// ```text
-/// HTTP/2 307
-/// server: ESA
-/// x-tengine-error: denied by http_custom
-/// set-cookie: acw_sc__v2=...;path=/;HttpOnly;Max-Age=1800
-/// location: /2509/68d26bef5fdb3.jpg      <- 重定向回它自己
-/// ```
-///
-/// 客户端会在这个「自己跳自己」的重定向里打转，最后抛错，界面上表现为
-/// **所有帖子图片都加载失败**（只剩 errorWidget 的破图占位）。
-///
-/// 和 `bbs.binmt.cc` 的 JS 挑战不同，图床这道门**不需要执行 JS**：WAF 在
-/// 第一次响应里就把 `acw_sc__v2` 直接 `Set-Cookie` 下来了。真正的坑在于
-/// Dart 的 `HttpClient` 和 `CachedNetworkImage` 都**不保存 Cookie**，所以
-/// 每次取图都是「裸奔」，必然打转。
-///
-/// ## 做法
-///
-/// 用一个独立的 Dio + CookieJar 给每个图片域名做一次「预热」：
-///
-/// 1. 第一发 `followRedirects: false`，只为把 WAF 下发的 Cookie 存进 jar；
-/// 2. 第二发带上 jar 里的 Cookie，正常取到图片（顺带确认通路可用）；
-/// 3. 把该域名的 Cookie 拼成字符串镜像出来，交给图片组件的 `httpHeaders`。
-///
-/// `bbs.binmt.cc` 这类需要 JS 挑战的域名不归这里管（见 `waf_challenge.dart`），
-/// 预热失败也不影响主流程。
+/// 全程吞异常，任何失败都只意味着「这次没拿到 Cookie」。
 class ImageRequestHeaders {
   ImageRequestHeaders._();
 
-  /// 与 `ApiService.mobileUserAgent` 保持一致。
-  ///
-  /// WAF 有可能把通行 Cookie 和 UA 绑定，两边 UA 不一致会出现
-  /// 「预热拿到的 Cookie 交给图片组件就失效」。
-  static const String userAgent = 'Mozilla/5.0 (Linux; Android 16) '
-      'AppleWebKit/537.36 (KHTML, like Gecko) '
-      'Chrome/150.0.0.0 Mobile Safari/537.36';
+  /// 站点对移动端模板下发的 UA，取 Cookie 时保持一致。
+  static const String userAgent =
+      'Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 '
+      '(KHTML, like Gecko) Chrome/150.0.0.0 Mobile Safari/537.36';
 
-  static const String referer = 'https://bbs.binmt.cc/';
+  static const String _referer = 'https://bbs.binmt.cc/';
 
   static const String _accept =
       'image/avif,image/webp,image/apng,image/*,*/*;q=0.8';
 
-  /// 单个域名的预热上限，避免拖慢帖子首屏。
-  static const Duration _warmUpTimeout = Duration(seconds: 8);
+  static const Duration _requestTimeout = Duration(seconds: 8);
 
-  /// host -> 拼接好的 Cookie 头。
-  static final Map<String, String> _cookieByHost = <String, String>{};
+  /// 失败后多久内不再尝试同一个 host。
+  static const Duration _failCooldown = Duration(minutes: 30);
 
-  /// 正在预热的 host，防止并发重复请求。
-  static final Set<String> _warming = <String>{};
+  /// 单轮预热最多同时处理几个 host。
+  static const int _maxParallelHosts = 2;
+
+  /// **绝不去碰的 host**：论坛自身的域名。
+  ///
+  /// 它的 `acw_sc__v2` 通行 Cookie 是 ApiService 拿来跑接口的，属于「关键资源」；
+  /// 图片服务在这里多发一次无 Cookie 的请求，就可能让 WAF 把整段通行证作废，
+  /// 直接后果就是首页/帖子列表请求全部被挑战页挡掉（表现：列表空白）。
+  /// 站点自身的静态图没有通行证时本来就取不到，保持原样即可，不要雪上加霜。
+  static const Set<String> _neverWarmHosts = <String>{
+    'bbs.binmt.cc',
+    'www.binmt.cc',
+    'binmt.cc',
+  };
 
   static CookieJar? _jar;
   static Dio? _dio;
 
+  /// host -> 可直接塞进图片请求头的 Cookie 串。
+  static final Map<String, String> _cookieByHost = <String, String>{};
+
+  /// host -> 冷却截止时间。
+  static final Map<String, DateTime> _cooldownUntil = <String, DateTime>{};
+
+  /// 正在预热的 host。
+  static final Set<String> _warming = <String>{};
+
+  /// 本会话已经试过的 host（无论成败都只试一次）。
+  static final Set<String> _triedHosts = <String>{};
+
   static CookieJar get _cookieJar => _jar ??= CookieJar();
 
   static Dio get _client {
-    final cached = _dio;
-    if (cached != null) return cached;
-    final dio = Dio(
+    final existing = _dio;
+    if (existing != null) return existing;
+    final client = Dio(
       BaseOptions(
-        headers: <String, String>{
+        connectTimeout: _requestTimeout,
+        receiveTimeout: _requestTimeout,
+        sendTimeout: _requestTimeout,
+        followRedirects: false,
+        validateStatus: (int? code) => code != null && code < 500,
+        headers: <String, dynamic>{
           'User-Agent': userAgent,
-          'Referer': referer,
+          'Referer': _referer,
           'Accept': _accept,
         },
-        responseType: ResponseType.bytes,
-        // 预热只关心 Cookie，4xx 也当成「有结果」处理，别抛异常。
-        validateStatus: (int? status) => status != null && status < 500,
       ),
     );
-    dio.interceptors.add(CookieManager(_cookieJar));
-    _dio = dio;
-    return dio;
+    client.interceptors.add(CookieManager(_cookieJar));
+    _dio = client;
+    return client;
   }
 
-  /// 图片组件要用的请求头。
+  /// 图片组件要用的请求头。**这里不会发任何网络请求。**
   ///
-  /// 已预热的域名会带上通行 Cookie；没预热的会顺手在后台补一次，
-  /// 这样即使调用方漏了 [warmUp]，等组件下次重建也能恢复。
-  static Map<String, String> headersFor(String url) {
+  /// 还没有预热到 Cookie 时只返回基础头（UA / Referer / Accept），
+  /// 让图片组件自己去试；预热完成后的重建自然会带上 Cookie。
+  static Map<String, String> headersFor(String? url) {
     final headers = <String, String>{
       'User-Agent': userAgent,
-      'Referer': referer,
+      'Referer': _referer,
       'Accept': _accept,
     };
-    final uri = Uri.tryParse(url);
-    if (uri == null || !uri.hasScheme) return headers;
-    final cookie = _cookieByHost[uri.host];
+    final host = _hostOf(url);
+    if (host == null) return headers;
+    if (_neverWarmHosts.contains(host)) return headers;
+    final cookie = _cookieByHost[host];
     if (cookie != null && cookie.isNotEmpty) {
       headers['Cookie'] = cookie;
-    } else {
-      unawaited(warmUp(<String>[url]));
     }
     return headers;
   }
 
-  /// 预热一批图片地址所属的域名（同一域名只做一次）。
+  /// 预热一批图片地址（按 host 去重）。永不抛异常。
   ///
-  /// 永不抛异常：预热只是优化，失败也应该让页面照常显示。
-  static Future<void> warmUp(Iterable<String> urls) async {
-    final hosts = <String, Uri>{};
-    for (final raw in urls) {
-      if (raw.isEmpty) continue;
-      final uri = Uri.tryParse(raw);
-      if (uri == null) continue;
-      if (uri.scheme != 'http' && uri.scheme != 'https') continue;
-      hosts.putIfAbsent(uri.host, () => uri);
+  /// 应该在数据加载完成后**显式调用一次**（例如帖子详情解析出配图之后），
+  /// 不要放在 `build()` 里。
+  static Future<void> warmUp(Iterable<String?> urls) async {
+    final firstUrlByHost = <String, String>{};
+    for (final url in urls) {
+      if (url == null) continue;
+      final host = _hostOf(url);
+      if (host == null) continue;
+      if (_neverWarmHosts.contains(host)) continue;
+      firstUrlByHost.putIfAbsent(host, () => url.trim());
     }
-    if (hosts.isEmpty) return;
-    await Future.wait<void>(
-      hosts.values.map((Uri uri) async {
-        try {
-          await _warmUpHost(uri).timeout(_warmUpTimeout);
-        } catch (_) {
-          // 预热失败不影响主流程。
-        }
-      }),
-    );
+    if (firstUrlByHost.isEmpty) return;
+
+    final now = DateTime.now();
+    final todo = <String>[];
+    for (final host in firstUrlByHost.keys) {
+      if (_cookieByHost.containsKey(host)) continue;
+      if (_triedHosts.contains(host)) continue;
+      final until = _cooldownUntil[host];
+      if (until != null && now.isBefore(until)) continue;
+      if (_warming.contains(host)) continue;
+      todo.add(host);
+    }
+    if (todo.isEmpty) return;
+
+    for (var i = 0; i < todo.length; i += _maxParallelHosts) {
+      final end = i + _maxParallelHosts < todo.length
+          ? i + _maxParallelHosts
+          : todo.length;
+      await Future.wait(
+        todo.sublist(i, end).map(
+              (String host) => _warmUpHost(host, firstUrlByHost[host]),
+            ),
+      );
+    }
   }
 
-  /// 清空已缓存的通行 Cookie（账号切换 / 退出登录时调用）。
-  static void reset() {
-    _cookieByHost.clear();
-    _warming.clear();
-  }
-
-  static Future<void> _warmUpHost(Uri uri) async {
-    final host = uri.host;
-    if (_cookieByHost.containsKey(host)) return;
+  static Future<void> _warmUpHost(String host, String? url) async {
+    if (url == null || url.isEmpty) return;
     if (!_warming.add(host)) return;
+    _triedHosts.add(host);
     try {
-      final target = uri.toString();
-      final dio = _client;
+      final uri = Uri.tryParse(url);
+      if (uri == null) return;
 
-      // 第一发：不跟随重定向，只为收下 WAF 的 Set-Cookie。
-      try {
-        await dio.get<List<int>>(
-          target,
-          options: Options(followRedirects: false),
-        );
-      } catch (_) {
-        // 忽略：Cookie 挂在 3xx 响应上，这里不关心状态码。
-      }
-
-      // 第二发：CookieManager 会把上一步存下的 Cookie 带上。
-      try {
-        await dio.get<List<int>>(target);
-      } catch (_) {
-        // 图片本身取不取得到不影响 Cookie 镜像。
-      }
+      // 第一发：不跟随跳转，只为收下 WAF 随 307 一起下发的 Cookie。
+      await _client.getUri<String>(
+        uri,
+        options: Options(
+          responseType: ResponseType.plain,
+          followRedirects: false,
+        ),
+      );
 
       final cookies = await _cookieJar.loadForRequest(uri);
-      if (cookies.isEmpty) return;
-      _cookieByHost[host] =
-          cookies.map((c) => '${c.name}=${c.value}').join('; ');
+      final cookieHeader = cookies
+          .map((Cookie c) => '${c.name}=${c.value}')
+          .join('; ');
+      if (cookieHeader.isEmpty) {
+        // 没有下发 Cookie：这个 host 不需要通行证，或者策略变了。
+        // 不缓存，但进冷却，别反复打。
+        _cooldownUntil[host] = DateTime.now().add(_failCooldown);
+        return;
+      }
+
+      // 自证：带上 Cookie 再取一次，确认真能拿到图，而不是又一张挑战页。
+      final probe = await _client.getUri<List<int>>(
+        uri,
+        options: Options(
+          responseType: ResponseType.bytes,
+          followRedirects: true,
+          headers: <String, dynamic>{'Cookie': cookieHeader},
+        ),
+      );
+      final body = probe.data;
+      final contentType =
+          probe.headers.value('content-type')?.toLowerCase() ?? '';
+      final looksLikeHtml = contentType.contains('text/html');
+      if (probe.statusCode == 200 &&
+          body != null &&
+          body.isNotEmpty &&
+          !looksLikeHtml) {
+        _cookieByHost[host] = cookieHeader;
+        _cooldownUntil.remove(host);
+      } else {
+        _cooldownUntil[host] = DateTime.now().add(_failCooldown);
+      }
     } catch (_) {
-      // 预热失败不抛出。
+      // 拿不到就算了：图片显示不出来是可接受的降级。
+      _cooldownUntil[host] = DateTime.now().add(_failCooldown);
     } finally {
       _warming.remove(host);
     }
+  }
+
+  static String? _hostOf(String? url) {
+    if (url == null) return null;
+    final trimmed = url.trim();
+    if (trimmed.isEmpty) return null;
+    final uri = Uri.tryParse(trimmed);
+    if (uri == null) return null;
+    final scheme = uri.scheme;
+    if (scheme != 'http' && scheme != 'https') return null;
+    if (uri.host.isEmpty) return null;
+    return uri.host;
+  }
+
+  /// 退出登录等场景清空缓存。
+  static void reset() {
+    _cookieByHost.clear();
+    _cooldownUntil.clear();
+    _warming.clear();
+    _triedHosts.clear();
   }
 }

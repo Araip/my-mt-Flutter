@@ -10,7 +10,7 @@ import 'social_center_page.dart';
 import 'poke_page.dart';
 import 'wall_page.dart';
 import '../../widgets/app_state_view.dart';
-import '../../../services/image_request_headers.dart';
+import '../../services/image_request_headers.dart';
 
 class UserProfilePage extends StatefulWidget {
   final String uid;

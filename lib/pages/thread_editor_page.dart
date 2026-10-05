@@ -7,7 +7,7 @@ import '../models/models.dart';
 import '../services/api_service.dart';
 import '../widgets/app_state_view.dart';
 import '../widgets/bbcode_preview.dart';
-import '../../services/image_request_headers.dart';
+import '../services/image_request_headers.dart';
 
 class ThreadEditorPage extends StatefulWidget {
   final bool editing;

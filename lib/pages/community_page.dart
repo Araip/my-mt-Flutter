@@ -8,7 +8,7 @@ import '../widgets/app_state_view.dart';
 import '../widgets/thread_card.dart';
 import '../routes/thread_routes.dart';
 import 'thread_editor_page.dart';
-import '../../services/image_request_headers.dart';
+import '../services/image_request_headers.dart';
 
 class CommunityPage extends StatefulWidget {
   const CommunityPage({super.key});
